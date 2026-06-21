@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+kimchi-app/node_modules/
+
+# Environment variables (민감한 API 키 보호)
+.env
+.env.local
+.env.*.local
+kimchi-app/.env
+kimchi-app/.env.local
+
+# Build output
+dist/
+kimchi-app/dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
