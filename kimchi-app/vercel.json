@@ -3,6 +3,9 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
+    { "source": "/api/upbit/:path*", "destination": "https://api.upbit.com/:path*" },
+    { "source": "/api/bithumb/:path*", "destination": "https://api.bithumb.com/:path*" },
+    { "source": "/api/binance/:path*", "destination": "https://api.binance.com/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

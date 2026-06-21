@@ -3,7 +3,7 @@
 // ============================================================
 
 export async function fetchUpbitMarkets() {
-  const res = await fetch("https://api.upbit.com/v1/market/all?isDetails=true");
+  const res = await fetch("/api/upbit/v1/market/all?isDetails=true");
   if (!res.ok) throw new Error(`업비트 마켓 목록 조회 실패 (HTTP ${res.status})`);
   const data = await res.json();
   return data
@@ -29,7 +29,7 @@ export async function fetchUpbitBatch(symbols) {
   for (let i = 0; i < symbols.length; i += CHUNK_SIZE) {
     const chunk = symbols.slice(i, i + CHUNK_SIZE);
     const markets = chunk.map((s) => `KRW-${s}`).join(",");
-    const res = await fetch(`https://api.upbit.com/v1/ticker?markets=${markets}`);
+    const res = await fetch(`/api/upbit/v1/ticker?markets=${markets}`);
     if (!res.ok) throw new Error(`업비트 시세 조회 실패 (HTTP ${res.status})`);
     const data = await res.json();
     data.forEach((d) => {
@@ -41,7 +41,7 @@ export async function fetchUpbitBatch(symbols) {
 }
 
 export async function fetchBithumbAll() {
-  const res = await fetch("https://api.bithumb.com/public/ticker/ALL_KRW");
+  const res = await fetch("/api/bithumb/public/ticker/ALL_KRW");
   if (!res.ok) throw new Error(`빗썸 시세 조회 실패 (HTTP ${res.status})`);
   const data = await res.json();
   const map = {};
@@ -56,7 +56,7 @@ export async function fetchBithumbAll() {
 }
 
 export async function fetchBinanceAll() {
-  const res = await fetch("https://api.binance.com/api/v3/ticker/price");
+  const res = await fetch("/api/binance/api/v3/ticker/price");
   if (!res.ok) throw new Error(`바이낸스 시세 조회 실패 (HTTP ${res.status})`);
   const data = await res.json();
   const map = {};
