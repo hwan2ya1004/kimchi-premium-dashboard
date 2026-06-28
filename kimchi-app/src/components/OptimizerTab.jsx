@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { AlertTriangle, Search, Play, Loader2, BarChart2 } from "lucide-react";
-import { createChart } from "lightweight-charts";
+import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers } from "lightweight-charts";
 
 import {
   fetchAllUsdtSymbols,
@@ -141,7 +141,7 @@ export default function OptimizerTab() {
     const mainChart = createChart(mainRef.current, baseChartOptions(420));
     mainChartRef.current = mainChart;
 
-    const candleSeries = mainChart.addCandlestickSeries({
+    const candleSeries = mainChart.addSeries(CandlestickSeries, {
       upColor: C.candle_up, downColor: C.candle_down,
       borderUpColor: C.candle_up, borderDownColor: C.candle_down,
       wickUpColor: C.candle_up, wickDownColor: C.candle_down,
@@ -159,22 +159,22 @@ export default function OptimizerTab() {
     // 볼린저밴드
     if (showBoll) {
       const { upper, mid, lower } = calcBollinger(candles, bollPeriod, bollMult);
-      mainChart.addLineSeries({ color: C.boll_upper, lineWidth: 1, lineStyle: 2, title: `BB상단(${bollPeriod},${bollMult})` }).setData(toLineData(upper));
-      mainChart.addLineSeries({ color: C.boll_mid,   lineWidth: 1, lineStyle: 1, title: "BB중간" }).setData(toLineData(mid));
-      mainChart.addLineSeries({ color: C.boll_lower, lineWidth: 1, lineStyle: 2, title: "BB하단" }).setData(toLineData(lower));
+      mainChart.addSeries(LineSeries, { color: C.boll_upper, lineWidth: 1, lineStyle: 2, title: `BB상단(${bollPeriod},${bollMult})` }).setData(toLineData(upper));
+      mainChart.addSeries(LineSeries, { color: C.boll_mid,   lineWidth: 1, lineStyle: 1, title: "BB중간" }).setData(toLineData(mid));
+      mainChart.addSeries(LineSeries, { color: C.boll_lower, lineWidth: 1, lineStyle: 2, title: "BB하단" }).setData(toLineData(lower));
     }
 
     // HMA
     if (showHMA) {
       const hmaArr = calcHMA(candles, hmaPeriod);
-      mainChart.addLineSeries({ color: C.hma, lineWidth: 2, title: `HMA(${hmaPeriod})` })
+      mainChart.addSeries(LineSeries, { color: C.hma, lineWidth: 2, title: `HMA(${hmaPeriod})` })
         .setData(hmaArr.map((v, i) => v == null ? null : { time: Math.floor(candles[i].time / 1000), value: v }).filter(Boolean));
     }
 
     // VWAP
     if (showVWAP) {
       const vwapArr = calcVWAP(candles);
-      mainChart.addLineSeries({ color: C.vwap, lineWidth: 1, lineStyle: 3, title: "VWAP" })
+      mainChart.addSeries(LineSeries, { color: C.vwap, lineWidth: 1, lineStyle: 3, title: "VWAP" })
         .setData(vwapArr.map((v, i) => v == null ? null : { time: Math.floor(candles[i].time / 1000), value: v }).filter(Boolean));
     }
 
@@ -218,7 +218,7 @@ export default function OptimizerTab() {
         }));
       }
       allMarkers.sort((a, b) => a.time - b.time);
-      candleSeries.setMarkers(allMarkers);
+      createSeriesMarkers(candleSeries, allMarkers);
     }
 
     // ADX 패널
@@ -230,10 +230,10 @@ export default function OptimizerTab() {
       adxChartRef.current = adxChart;
 
       const { adx, plusDI, minusDI } = calcADX(candles, adxPeriod);
-      adxChart.addLineSeries({ color: C.adx,      lineWidth: 2, title: `ADX(${adxPeriod})` }).setData(toLineData(adx));
-      adxChart.addLineSeries({ color: C.plus_di,  lineWidth: 1, title: "+DI" }).setData(toLineData(plusDI));
-      adxChart.addLineSeries({ color: C.minus_di, lineWidth: 1, title: "-DI" }).setData(toLineData(minusDI));
-      adxChart.addLineSeries({ color: "#3a4048",  lineWidth: 1, lineStyle: 2, title: `임계(${adxThresh})` })
+      adxChart.addSeries(LineSeries, { color: C.adx,      lineWidth: 2, title: `ADX(${adxPeriod})` }).setData(toLineData(adx));
+      adxChart.addSeries(LineSeries, { color: C.plus_di,  lineWidth: 1, title: "+DI" }).setData(toLineData(plusDI));
+      adxChart.addSeries(LineSeries, { color: C.minus_di, lineWidth: 1, title: "-DI" }).setData(toLineData(minusDI));
+      adxChart.addSeries(LineSeries, { color: "#3a4048",  lineWidth: 1, lineStyle: 2, title: `임계(${adxThresh})` })
         .setData(candles.map((c) => ({ time: Math.floor(c.time / 1000), value: adxThresh })));
 
       mainChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
