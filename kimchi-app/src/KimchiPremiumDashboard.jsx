@@ -306,7 +306,7 @@ export default function KimchiPremiumDashboard() {
       </div>
 
       {/* ── 지표 최적화 탭 ── */}
-      {mainTab === "optimizer" && <OptimizerTab />}
+      {mainTab === "optimizer" && <OptimizerTab binanceSymbols={binanceSymbolsRef.current} />}
 
       {/* ── 모니터 탭 ── */}
       {mainTab === "monitor" && (

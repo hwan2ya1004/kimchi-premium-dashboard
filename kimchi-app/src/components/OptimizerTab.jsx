@@ -7,8 +7,9 @@ import { AlertTriangle, Search, Play, Loader2, BarChart2 } from "lucide-react";
 import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers } from "lightweight-charts";
 
 import {
-  fetchAllUsdtSymbols,
+  fetchAllKrwSymbols,
   fetchKlines,
+  INTERVAL_OPTIONS,
   gridSearch,
   INDICATOR_LABEL,
   formatParams,
@@ -59,7 +60,8 @@ export default function OptimizerTab() {
   const [coinQuery,      setCoinQuery]      = useState("");
   const [selectedCoin,   setSelectedCoin]   = useState("BTC");
   const [showDropdown,   setShowDropdown]   = useState(false);
-  const [days,           setDays]           = useState(365);
+  const [interval,       setInterval]       = useState("1d");
+  const [period,         setPeriod]         = useState(365);
 
   // ── 차트 상태 ────────────────────────────────────────────
   const [chartLoading,  setChartLoading]  = useState(false);
@@ -84,19 +86,21 @@ export default function OptimizerTab() {
   const adxChartRef  = useRef(null);
 
   // ── 최적화 상태 ──────────────────────────────────────────
-  const [indicator,  setIndicator]  = useState("bollinger");
-  const [minTrades,  setMinTrades]  = useState(5);
-  const [useTpSl,    setUseTpSl]    = useState(true);
-  const [running,    setRunning]    = useState(false);
-  const [optError,   setOptError]   = useState(null);
-  const [results,    setResults]    = useState(null);
+  const [indicator,   setIndicator]   = useState("bollinger");
+  const [minTrades,   setMinTrades]   = useState(5);
+  const [useTpSl,     setUseTpSl]     = useState(true);
+  const [running,     setRunning]     = useState(false);
+  const [optError,    setOptError]    = useState(null);
+  const [results,     setResults]     = useState(null);
   const [candleCount, setCandleCount] = useState(null);
+
+  const currentIntervalOpt = INTERVAL_OPTIONS.find((o) => o.value === interval) || INTERVAL_OPTIONS[5];
 
   // ── 코인 목록 로드 ───────────────────────────────────────
   useEffect(() => {
     (async () => {
       try {
-        const symbols = await fetchAllUsdtSymbols();
+        const symbols = await fetchAllKrwSymbols();
         setAllSymbols(symbols);
       } catch {
         setSymbolsError(true);
@@ -118,15 +122,15 @@ export default function OptimizerTab() {
     setChartError(null);
     setCandles(null);
     try {
-      const data = await fetchKlines(selectedCoin, days);
-      if (!data || data.length < 30) throw new Error("캔들 데이터가 너무 적습니다");
+      const data = await fetchKlines(selectedCoin, period, interval);
+      if (!data || data.length < 10) throw new Error("캔들 데이터가 너무 적습니다");
       setCandles(data);
     } catch (e) {
       setChartError(e.message || "데이터 로드 실패");
     } finally {
       setChartLoading(false);
     }
-  }, [selectedCoin, days]);
+  }, [selectedCoin, period, interval]);
 
   useEffect(() => { loadCandles(); }, [loadCandles]);
 
@@ -267,8 +271,8 @@ export default function OptimizerTab() {
     setOptError(null);
     setResults(null);
     try {
-      const optCandles = await fetchKlines(selectedCoin, days);
-      if (!optCandles || optCandles.length < 30) throw new Error("캔들 데이터가 너무 적습니다");
+      const optCandles = await fetchKlines(selectedCoin, period, interval);
+      if (!optCandles || optCandles.length < 10) throw new Error("캔들 데이터가 너무 적습니다");
       setCandleCount(optCandles.length);
       const gridResults = gridSearch(optCandles, indicator, minTrades, useTpSl);
       setResults(gridResults);
@@ -277,7 +281,7 @@ export default function OptimizerTab() {
     } finally {
       setRunning(false);
     }
-  }, [selectedCoin, days, indicator, minTrades, useTpSl]);
+  }, [selectedCoin, period, interval, indicator, minTrades, useTpSl]);
 
   // ── 스타일 ───────────────────────────────────────────────
   const inputStyle = {
@@ -316,15 +320,15 @@ export default function OptimizerTab() {
 
   return (
     <div>
-      {/* ── 공통 설정 패널 (코인 + 기간) ── */}
+      {/* ── 공통 설정 패널 (코인 + 인터벌 + 기간) ── */}
       <div style={{
         background: "#11151a", border: "1px solid #1c2128", borderRadius: 14,
         padding: 20, marginBottom: 20,
-        display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16,
+        display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16,
       }}>
         {/* 코인 선택 */}
         <div style={{ position: "relative" }}>
-          <label style={labelStyle}>코인 (바이낸스 USDT 마켓)</label>
+          <label style={labelStyle}>코인 (업비트 KRW 마켓)</label>
           <div style={{ position: "relative" }}>
             <Search size={14} color="#5c6370" style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
             <input
@@ -363,14 +367,28 @@ export default function OptimizerTab() {
           )}
         </div>
 
+        {/* 인터벌 선택 */}
+        <div>
+          <label style={labelStyle}>인터벌</label>
+          <select value={interval} onChange={(e) => {
+            const newInterval = e.target.value;
+            setInterval(newInterval);
+            const opt = INTERVAL_OPTIONS.find((o) => o.value === newInterval);
+            if (opt) setPeriod(opt.periods[0].v);
+          }} style={inputStyle}>
+            {INTERVAL_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+
         {/* 기간 선택 */}
         <div>
-          <label style={labelStyle}>분석 기간 (일봉 개수)</label>
-          <select value={days} onChange={(e) => setDays(parseInt(e.target.value))} style={inputStyle}>
-            <option value={90}>최근 90일</option>
-            <option value={180}>최근 180일</option>
-            <option value={365}>최근 1년</option>
-            <option value={730}>최근 2년</option>
+          <label style={labelStyle}>기간</label>
+          <select value={period} onChange={(e) => setPeriod(parseInt(e.target.value))} style={inputStyle}>
+            {currentIntervalOpt.periods.map((p) => (
+              <option key={p.v} value={p.v}>{p.l}</option>
+            ))}
           </select>
         </div>
       </div>
@@ -480,17 +498,15 @@ export default function OptimizerTab() {
         <>
           <div style={{ fontSize: 12, color: "#5c6370", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
             <BarChart2 size={13} />
-            <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: "#9198a1", fontWeight: 700 }}>{selectedCoin}USDT</span>
-            <span>일봉 캔들차트</span>
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: "#9198a1", fontWeight: 700 }}>KRW-{selectedCoin}</span>
+            <span>{currentIntervalOpt.label} 캔들차트 (업비트)</span>
           </div>
-          {/* ★ height 명시 — 이게 없으면 차트가 렌더링되지 않음 */}
           <div ref={mainRef} style={{ width: "100%", height: 420, borderRadius: 10, overflow: "hidden", border: "1px solid #1c2128" }} />
           {showADX && (
             <>
               <div style={{ fontSize: 11, color: "#5c6370", margin: "10px 0 6px", paddingLeft: 2 }}>
                 ADX 패널 — <span style={{ color: C.adx }}>ADX</span> / <span style={{ color: C.plus_di }}>+DI</span> / <span style={{ color: C.minus_di }}>-DI</span>
               </div>
-              {/* ★ height 명시 */}
               <div ref={adxRef} style={{ width: "100%", height: 180, borderRadius: 10, overflow: "hidden", border: "1px solid #1c2128" }} />
             </>
           )}
@@ -592,7 +608,7 @@ export default function OptimizerTab() {
           <div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 12 }}>
               <h3 style={{ margin: 0, fontSize: 15, color: "#e6edf3", fontWeight: 600 }}>
-                {selectedCoin} · {INDICATOR_LABEL[indicator]} 최적화 결과
+                KRW-{selectedCoin} · {INDICATOR_LABEL[indicator]} 최적화 결과
               </h3>
               <span style={{ fontSize: 12, color: "#5c6370", fontFamily: "'IBM Plex Mono', monospace" }}>
                 캔들 {candleCount}개 · 조합 {results.length}개 통과

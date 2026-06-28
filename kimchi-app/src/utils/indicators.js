@@ -2,40 +2,85 @@
 // 지표 계산 / 백테스트 / 그리드서치 유틸리티
 // ============================================================
 
-// ── 바이낸스 API ─────────────────────────────────────────────
-export async function fetchAllUsdtSymbols() {
-  const res = await fetch("https://api.binance.com/api/v3/exchangeInfo");
-  if (!res.ok) throw new Error("exchangeInfo");
+// ── 업비트 API ───────────────────────────────────────────────
+
+// 업비트 KRW 마켓 코인 목록
+export async function fetchAllKrwSymbols() {
+  const res = await fetch("https://api.upbit.com/v1/market/all?isDetails=false");
+  if (!res.ok) throw new Error("upbit market list");
   const data = await res.json();
-  return data.symbols
-    .filter(
-      (s) =>
-        s.quoteAsset === "USDT" &&
-        s.status === "TRADING" &&
-        s.isSpotTradingAllowed
-    )
-    .map((s) => s.baseAsset)
+  return data
+    .filter((m) => m.market.startsWith("KRW-"))
+    .map((m) => m.market.replace("KRW-", ""))
     .sort();
 }
 
-export async function fetchKlines(symbolBase, days) {
-  // limit을 days+2로 요청해 오늘 진행 중인 캔들까지 포함
-  // 바이낸스는 UTC 기준이므로 한국시간(UTC+9) 오전 9시 이전엔 어제 캔들이 최신
-  const limit = Math.min(days + 2, 1000);
-  const url = `https://api.binance.com/api/v3/klines?symbol=${symbolBase}USDT&interval=1d&limit=${limit}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("klines");
-  const data = await res.json();
-  // 요청한 days 개수만큼만 잘라서 반환 (최신 데이터 기준)
-  const rows = data.slice(-days);
-  return rows.map((row) => ({
-    time: row[0],
-    open: parseFloat(row[1]),
-    high: parseFloat(row[2]),
-    low: parseFloat(row[3]),
-    close: parseFloat(row[4]),
-    volume: parseFloat(row[5]),
+// 업비트 캔들 API — 인터벌별 엔드포인트
+// interval: "1m"|"3m"|"5m"|"10m"|"15m"|"30m"|"60m"|"240m"|"1d"|"1w"|"1M"
+function upbitCandleUrl(symbol, interval, count, to) {
+  const market = `KRW-${symbol}`;
+  const toParam = to ? `&to=${encodeURIComponent(to)}` : "";
+  if (interval === "1d") {
+    return `https://api.upbit.com/v1/candles/days?market=${market}&count=${count}${toParam}`;
+  }
+  if (interval === "1w") {
+    return `https://api.upbit.com/v1/candles/weeks?market=${market}&count=${count}${toParam}`;
+  }
+  // 분봉: 1, 3, 5, 10, 15, 30, 60, 240
+  const unit = interval.replace("m", "");
+  return `https://api.upbit.com/v1/candles/minutes/${unit}?market=${market}&count=${count}${toParam}`;
+}
+
+// 업비트 캔들 페이지네이션 (최대 200개/요청)
+export async function fetchKlines(symbolBase, totalCount, interval = "1d") {
+  const PER_PAGE = 200;
+  let remaining = totalCount;
+  let to = null;
+  const allRows = [];
+
+  while (remaining > 0) {
+    const count = Math.min(remaining, PER_PAGE);
+    const url = upbitCandleUrl(symbolBase, interval, count, to);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("upbit klines");
+    const data = await res.json();
+    if (!data || data.length === 0) break;
+
+    // 업비트는 최신→과거 순으로 반환하므로 뒤집어서 앞에 붙임
+    allRows.unshift(...data.reverse());
+    remaining -= data.length;
+
+    if (data.length < count) break; // 더 이상 데이터 없음
+
+    // 다음 페이지: 현재 배치의 가장 오래된 캔들 시각 기준
+    // data는 이미 reverse()됐으므로 allRows[0]이 가장 오래된 것
+    const oldest = allRows[0];
+    to = oldest.candle_date_time_utc;
+  }
+
+  return allRows.map((row) => ({
+    time: new Date(row.candle_date_time_kst).getTime(),
+    open:   row.opening_price,
+    high:   row.high_price,
+    low:    row.low_price,
+    close:  row.trade_price,
+    volume: row.candle_acc_trade_volume,
   }));
+}
+
+// 인터벌별 기간 옵션
+export const INTERVAL_OPTIONS = [
+  { value: "1m",   label: "1분봉",   periods: [{ v: 60,  l: "1시간" }, { v: 240,  l: "4시간" }, { v: 720,  l: "12시간" }, { v: 1440, l: "1일" }] },
+  { value: "5m",   label: "5분봉",   periods: [{ v: 60,  l: "5시간" }, { v: 288,  l: "1일" },   { v: 576,  l: "2일" },   { v: 864,  l: "3일" }] },
+  { value: "15m",  label: "15분봉",  periods: [{ v: 96,  l: "1일" },  { v: 192,  l: "2일" },   { v: 384,  l: "4일" },   { v: 672,  l: "1주" }] },
+  { value: "60m",  label: "1시간봉", periods: [{ v: 24,  l: "1일" },  { v: 72,   l: "3일" },   { v: 168,  l: "1주" },   { v: 336,  l: "2주" }, { v: 720, l: "1달" }] },
+  { value: "240m", label: "4시간봉", periods: [{ v: 42,  l: "1주" },  { v: 90,   l: "15일" },  { v: 180,  l: "1달" },   { v: 360,  l: "2달" }] },
+  { value: "1d",   label: "일봉",    periods: [{ v: 90,  l: "90일" }, { v: 180,  l: "180일" }, { v: 365,  l: "1년" },   { v: 730,  l: "2년" }] },
+];
+
+// 하위 호환: 바이낸스 심볼 목록 (모니터 탭에서 이미 불러오므로 fallback용)
+export async function fetchAllUsdtSymbols() {
+  return fetchAllKrwSymbols();
 }
 
 // ── 지표 계산 함수 ───────────────────────────────────────────

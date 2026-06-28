@@ -7,8 +7,9 @@ import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers } from 
 import { Loader2, AlertTriangle, BarChart2 } from "lucide-react";
 
 import {
-  fetchAllUsdtSymbols,
+  fetchAllKrwSymbols,
   fetchKlines,
+  INTERVAL_OPTIONS,
   calcBollinger,
   calcHMA,
   calcADX,
@@ -64,7 +65,8 @@ export default function ChartTab() {
   const [coinQuery,     setCoinQuery]     = useState("");
   const [selectedCoin,  setSelectedCoin]  = useState("BTC");
   const [showDropdown,  setShowDropdown]  = useState(false);
-  const [days,          setDays]          = useState(365);
+  const [interval,      setInterval]      = useState("1d");
+  const [period,        setPeriod]        = useState(365);
   const [loading,       setLoading]       = useState(false);
   const [error,         setError]         = useState(null);
   const [candles,       setCandles]       = useState(null);
@@ -92,9 +94,12 @@ export default function ChartTab() {
   const adxChartRef  = useRef(null);
   const seriesRefs   = useRef({});
 
+  // 인터벌 변경 시 기간을 해당 인터벌의 첫 번째 옵션으로 초기화
+  const currentIntervalOpt = INTERVAL_OPTIONS.find((o) => o.value === interval) || INTERVAL_OPTIONS[5];
+
   // ── 코인 목록 로드 ───────────────────────────────────────
   useEffect(() => {
-    fetchAllUsdtSymbols()
+    fetchAllKrwSymbols()
       .then(setAllSymbols)
       .catch(() => {})
       .finally(() => setSymbolsLoading(false));
@@ -112,7 +117,7 @@ export default function ChartTab() {
     setError(null);
     setCandles(null);
     try {
-      const data = await fetchKlines(selectedCoin, days);
+      const data = await fetchKlines(selectedCoin, period, interval);
       if (!data || data.length < 30) throw new Error("캔들 데이터가 너무 적습니다");
       setCandles(data);
     } catch (e) {
@@ -120,7 +125,7 @@ export default function ChartTab() {
     } finally {
       setLoading(false);
     }
-  }, [selectedCoin, days]);
+  }, [selectedCoin, period, interval]);
 
   useEffect(() => { loadCandles(); }, [loadCandles]);
 
@@ -376,14 +381,28 @@ export default function ChartTab() {
           )}
         </div>
 
+        {/* 인터벌 */}
+        <div>
+          <label style={labelStyle}>인터벌</label>
+          <select value={interval} onChange={(e) => {
+            const newInterval = e.target.value;
+            setInterval(newInterval);
+            const opt = INTERVAL_OPTIONS.find((o) => o.value === newInterval);
+            if (opt) setPeriod(opt.periods[0].v);
+          }} style={inputStyle}>
+            {INTERVAL_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+
         {/* 기간 */}
         <div>
           <label style={labelStyle}>기간</label>
-          <select value={days} onChange={(e) => setDays(parseInt(e.target.value))} style={inputStyle}>
-            <option value={90}>최근 90일</option>
-            <option value={180}>최근 180일</option>
-            <option value={365}>최근 1년</option>
-            <option value={730}>최근 2년</option>
+          <select value={period} onChange={(e) => setPeriod(parseInt(e.target.value))} style={inputStyle}>
+            {currentIntervalOpt.periods.map((p) => (
+              <option key={p.v} value={p.v}>{p.l}</option>
+            ))}
           </select>
         </div>
 
@@ -484,8 +503,8 @@ export default function ChartTab() {
         <>
           <div style={{ fontSize: 12, color: "#5c6370", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
             <BarChart2 size={13} />
-            <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: "#9198a1", fontWeight: 700 }}>{selectedCoin}USDT</span>
-            <span>일봉 캔들차트</span>
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: "#9198a1", fontWeight: 700 }}>KRW-{selectedCoin}</span>
+            <span>{currentIntervalOpt.label} 캔들차트 (업비트)</span>
           </div>
           <div
             ref={mainRef}
