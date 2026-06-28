@@ -11,7 +11,7 @@ export async function fetchAllKrwSymbols() {
   const data = await res.json();
   return data
     .filter((m) => m.market.startsWith("KRW-"))
-    .map((m) => m.market.replace("KRW-", ""))
+    .map((m) => String(m.market).replace("KRW-", ""))
     .sort();
 }
 
@@ -27,7 +27,7 @@ function upbitCandleUrl(symbol, interval, count, to) {
     return `/api/upbit/v1/candles/weeks?market=${market}&count=${count}${toParam}`;
   }
   // 분봉: 1, 3, 5, 10, 15, 30, 60, 240
-  const unit = interval.replace("m", "");
+  const unit = String(interval).replace("m", "");
   return `/api/upbit/v1/candles/minutes/${unit}?market=${market}&count=${count}${toParam}`;
 }
 

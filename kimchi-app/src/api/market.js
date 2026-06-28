@@ -14,7 +14,7 @@ export async function fetchUpbitMarkets() {
         .filter(([, v]) => v)
         .map(([k]) => k);
       return {
-        symbol: m.market.replace("KRW-", ""),
+        symbol: String(m.market).replace("KRW-", ""),
         name: m.korean_name,
         warning: event.warning === true,
         caution: cautionKeys,
@@ -33,6 +33,7 @@ export async function fetchUpbitBatch(symbols) {
     if (!res.ok) throw new Error(`업비트 시세 조회 실패 (HTTP ${res.status})`);
     const data = await res.json();
     data.forEach((d) => {
+      if (!d || typeof d.market !== "string") return;
       const sym = d.market.replace("KRW-", "");
       map[sym] = d.trade_price;
     });
@@ -61,6 +62,7 @@ export async function fetchBinanceAll() {
   const data = await res.json();
   const map = {};
   data.forEach((d) => {
+    if (!d || typeof d.symbol !== "string") return;
     if (d.symbol.endsWith("USDT")) {
       const sym = d.symbol.replace("USDT", "");
       map[sym] = parseFloat(d.price);
