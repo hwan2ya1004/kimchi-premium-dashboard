@@ -6,7 +6,7 @@
 
 // 업비트 KRW 마켓 코인 목록
 export async function fetchAllKrwSymbols() {
-  const res = await fetch("https://api.upbit.com/v1/market/all?isDetails=false");
+  const res = await fetch("/api/upbit/v1/market/all?isDetails=false");
   if (!res.ok) throw new Error("upbit market list");
   const data = await res.json();
   return data
@@ -21,14 +21,14 @@ function upbitCandleUrl(symbol, interval, count, to) {
   const market = `KRW-${symbol}`;
   const toParam = to ? `&to=${encodeURIComponent(to)}` : "";
   if (interval === "1d") {
-    return `https://api.upbit.com/v1/candles/days?market=${market}&count=${count}${toParam}`;
+    return `/api/upbit/v1/candles/days?market=${market}&count=${count}${toParam}`;
   }
   if (interval === "1w") {
-    return `https://api.upbit.com/v1/candles/weeks?market=${market}&count=${count}${toParam}`;
+    return `/api/upbit/v1/candles/weeks?market=${market}&count=${count}${toParam}`;
   }
   // 분봉: 1, 3, 5, 10, 15, 30, 60, 240
   const unit = interval.replace("m", "");
-  return `https://api.upbit.com/v1/candles/minutes/${unit}?market=${market}&count=${count}${toParam}`;
+  return `/api/upbit/v1/candles/minutes/${unit}?market=${market}&count=${count}${toParam}`;
 }
 
 // 업비트 캔들 페이지네이션 (최대 200개/요청)

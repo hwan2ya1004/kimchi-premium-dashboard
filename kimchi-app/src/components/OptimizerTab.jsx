@@ -276,6 +276,25 @@ export default function OptimizerTab() {
       setCandleCount(optCandles.length);
       const gridResults = gridSearch(optCandles, indicator, minTrades, useTpSl);
       setResults(gridResults);
+
+      // ── 1위 파라미터를 차트에 자동 적용 ──
+      if (gridResults.length > 0) {
+        const best = gridResults[0];
+        if (indicator === "bollinger") {
+          setBollPeriod(best.params.period);
+          setBollMult(best.params.mult);
+          setShowBoll(true);
+        } else if (indicator === "hma") {
+          setHmaPeriod(best.params.period);
+          setShowHMA(true);
+        } else if (indicator === "adx") {
+          setAdxPeriod(best.params.period);
+          setAdxThresh(best.params.threshold);
+          setShowADX(true);
+        } else if (indicator === "vwap") {
+          setShowVWAP(true);
+        }
+      }
     } catch (e) {
       setOptError(e.message || "최적화 실행 중 오류가 발생했습니다");
     } finally {
