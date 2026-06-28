@@ -59,7 +59,9 @@ export async function fetchKlines(symbolBase, totalCount, interval = "1d") {
   }
 
   return allRows.map((row) => ({
-    time: new Date(row.candle_date_time_utc + "Z").getTime(),
+    // candle_date_time_kst: "2026-06-28T21:37:00" → KST 시각을 UTC로 변환
+    // KST = UTC+9 이므로 9시간(32400000ms) 빼면 정확한 UTC ms
+    time: new Date(row.candle_date_time_kst).getTime() - 9 * 60 * 60 * 1000,
     open:   row.opening_price,
     high:   row.high_price,
     low:    row.low_price,
