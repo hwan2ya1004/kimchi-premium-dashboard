@@ -86,6 +86,8 @@ function baseChartOptions(height, interval) {
       borderColor: C.border,
       timeVisible: true,
       secondsVisible: false,
+      rightOffset: 0,        // 오른쪽 여백 제거 → 데이터가 왼쪽부터 표시
+      fixLeftEdge: true,     // 왼쪽 끝 고정
       tickMarkFormatter: (unixSec) => formatKST(unixSec, interval),
     },
     localization: {
@@ -135,6 +137,15 @@ export default function ChartTab() {
 
   // silent 업데이트 여부 추적 (zoom 유지용)
   const isSilentUpdate = useRef(false);
+
+  // 사용자가 설정한 zoom 범위를 항상 저장 (차트 재생성 시에도 복원)
+  const savedZoomRange = useRef(null);
+  const isUserZoomed   = useRef(false);
+
+  // 인터벌/코인/기간 변경 시 zoom 초기화
+  const prevIntervalRef = useRef(interval);
+  const prevCoinRef     = useRef(selectedCoin);
+  const prevPeriodRef   = useRef(period);
 
   // 인터벌 변경 시 기간을 해당 인터벌의 첫 번째 옵션으로 초기화
   const currentIntervalOpt = INTERVAL_OPTIONS.find((o) => o.value === interval) || INTERVAL_OPTIONS[5];
@@ -186,11 +197,23 @@ export default function ChartTab() {
 
     const toUnix = (c) => Math.floor(c.time / 1000);
 
+    // 인터벌/코인/기간이 변경된 경우 zoom 초기화
+    const intervalChanged = prevIntervalRef.current !== interval;
+    const coinChanged     = prevCoinRef.current !== selectedCoin;
+    const periodChanged   = prevPeriodRef.current !== period;
+    if (intervalChanged || coinChanged || periodChanged) {
+      savedZoomRange.current = null;
+      isUserZoomed.current   = false;
+      prevIntervalRef.current = interval;
+      prevCoinRef.current     = selectedCoin;
+      prevPeriodRef.current   = period;
+    }
+
     // ── silent 업데이트: 기존 차트가 있으면 zoom 유지하며 데이터만 갱신 ──
     if (isSilentUpdate.current && mainChartRef.current) {
-      // 현재 zoom 범위 저장
+      // 현재 zoom 범위 저장 (savedZoomRange 우선, 없으면 현재 차트 범위)
       const mainTimeScale = mainChartRef.current.timeScale();
-      const currentRange = mainTimeScale.getVisibleLogicalRange();
+      const currentRange = savedZoomRange.current || mainTimeScale.getVisibleLogicalRange();
 
       // 캔들 데이터 업데이트
       const candleData = candles.map((c) => ({
@@ -478,8 +501,14 @@ export default function ChartTab() {
     if (showADX && adxRef.current) {
       const adxChart = createChart(adxRef.current, {
         ...baseChartOptions(160, interval),
-        timeScale: { borderColor: C.border, timeVisible: true, visible: true,
-          tickMarkFormatter: (unixSec) => formatKST(unixSec, interval) },
+        timeScale: {
+          borderColor: C.border,
+          timeVisible: true,
+          visible: true,
+          rightOffset: 0,
+          fixLeftEdge: true,
+          tickMarkFormatter: (unixSec) => formatKST(unixSec, interval),
+        },
         localization: { timeFormatter: (unixSec) => formatKST(unixSec, interval) },
       });
       adxChartRef.current = adxChart;
@@ -511,6 +540,31 @@ export default function ChartTab() {
       });
       adxChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
         if (range) mainChart.timeScale().setVisibleLogicalRange(range);
+      });
+    }
+
+    // ── 사용자 zoom 이벤트 구독: 범위 변경 시 savedZoomRange에 저장 ──
+    let isRestoringZoom = false;
+    const handleZoomChange = (range) => {
+      if (!isRestoringZoom && range) {
+        savedZoomRange.current = range;
+        isUserZoomed.current   = true;
+      }
+    };
+    mainChart.timeScale().subscribeVisibleLogicalRangeChange(handleZoomChange);
+
+    // ── 저장된 zoom 범위 복원 (지표 토글 등으로 차트 재생성 시) ──
+    if (savedZoomRange.current && isUserZoomed.current) {
+      isRestoringZoom = true;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (mainChartRef.current && savedZoomRange.current) {
+            mainChartRef.current.timeScale().setVisibleLogicalRange(savedZoomRange.current);
+            if (volChartRef.current) volChartRef.current.timeScale().setVisibleLogicalRange(savedZoomRange.current);
+            if (adxChartRef.current) adxChartRef.current.timeScale().setVisibleLogicalRange(savedZoomRange.current);
+          }
+          isRestoringZoom = false;
+        });
       });
     }
 
