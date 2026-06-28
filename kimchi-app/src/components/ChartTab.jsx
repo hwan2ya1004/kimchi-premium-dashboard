@@ -3,8 +3,8 @@
 // ============================================================
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers } from "lightweight-charts";
-import { Loader2, AlertTriangle, BarChart2 } from "lucide-react";
+import { createChart, CandlestickSeries, LineSeries, HistogramSeries, createSeriesMarkers } from "lightweight-charts";
+import { Loader2, AlertTriangle, BarChart2, RefreshCw } from "lucide-react";
 
 import {
   fetchAllKrwSymbols,
@@ -27,6 +27,31 @@ const DEFAULT_PARAMS = {
   adx:       { period: 14, threshold: 25 },
 };
 
+// ── 인터벌별 자동갱신 주기 (ms) ─────────────────────────────
+function getRefreshMs(interval) {
+  if (interval === "1m")   return 10_000;   // 10초
+  if (interval === "5m")   return 30_000;   // 30초
+  if (interval === "15m")  return 60_000;   // 1분
+  if (interval === "60m")  return 120_000;  // 2분
+  if (interval === "240m") return 300_000;  // 5분
+  return null; // 일봉 이상은 자동갱신 없음
+}
+
+// ── 날짜/시간 포맷 (KST) ────────────────────────────────────
+function formatKST(unixSec, interval) {
+  const d = new Date(unixSec * 1000);
+  const pad = (n) => String(n).padStart(2, "0");
+  const yy = d.getFullYear();
+  const mo = pad(d.getMonth() + 1);
+  const dd = pad(d.getDate());
+  const hh = pad(d.getHours());
+  const mm = pad(d.getMinutes());
+  if (interval === "1d" || interval === "1w") {
+    return `${yy}-${mo}-${dd}`;
+  }
+  return `${yy}-${mo}-${dd} ${hh}:${mm}`;
+}
+
 // ── 색상 ────────────────────────────────────────────────────
 const C = {
   candle_up:   "#4caf6e",
@@ -41,6 +66,8 @@ const C = {
   adx:         "#e6edf3",
   plus_di:     "#4caf6e",
   minus_di:    "#ff5d5d",
+  vol_up:      "#4caf6e55",
+  vol_down:    "#ff5d5d55",
   bg:          "#0a0d11",
   grid:        "#1c2128",
   text:        "#7d8590",
@@ -48,14 +75,22 @@ const C = {
 };
 
 // ── 공통 차트 옵션 ───────────────────────────────────────────
-function baseChartOptions(height) {
+function baseChartOptions(height, interval) {
   return {
     height,
     layout:     { background: { color: C.bg }, textColor: C.text },
     grid:       { vertLines: { color: C.grid }, horzLines: { color: C.grid } },
     crosshair:  { mode: 1 },
     rightPriceScale: { borderColor: C.border },
-    timeScale:  { borderColor: C.border, timeVisible: true },
+    timeScale:  {
+      borderColor: C.border,
+      timeVisible: true,
+      secondsVisible: false,
+      tickMarkFormatter: (unixSec) => formatKST(unixSec, interval),
+    },
+    localization: {
+      timeFormatter: (unixSec) => formatKST(unixSec, interval),
+    },
   };
 }
 
@@ -70,6 +105,7 @@ export default function ChartTab() {
   const [loading,       setLoading]       = useState(false);
   const [error,         setError]         = useState(null);
   const [candles,       setCandles]       = useState(null);
+  const [lastRefresh,   setLastRefresh]   = useState(null);
 
   // 파라미터 상태
   const [bollPeriod, setBollPeriod] = useState(DEFAULT_PARAMS.bollinger.period);
@@ -79,18 +115,21 @@ export default function ChartTab() {
   const [adxThresh,  setAdxThresh]  = useState(DEFAULT_PARAMS.adx.threshold);
 
   // 지표 표시 토글
-  const [showBoll,  setShowBoll]  = useState(true);
-  const [showHMA,   setShowHMA]   = useState(true);
-  const [showVWAP,  setShowVWAP]  = useState(true);
-  const [showADX,   setShowADX]   = useState(true);
+  const [showBoll,    setShowBoll]    = useState(true);
+  const [showHMA,     setShowHMA]     = useState(true);
+  const [showVWAP,    setShowVWAP]    = useState(true);
+  const [showADX,     setShowADX]     = useState(true);
+  const [showVolume,  setShowVolume]  = useState(true);
   const [showSignals, setShowSignals] = useState(true);
 
   // 차트 DOM refs
-  const mainRef = useRef(null);
-  const adxRef  = useRef(null);
+  const mainRef   = useRef(null);
+  const volRef    = useRef(null);
+  const adxRef    = useRef(null);
 
   // 차트 인스턴스 refs
   const mainChartRef = useRef(null);
+  const volChartRef  = useRef(null);
   const adxChartRef  = useRef(null);
   const seriesRefs   = useRef({});
 
@@ -112,34 +151,45 @@ export default function ChartTab() {
   }, [allSymbols, coinQuery]);
 
   // ── 캔들 데이터 로드 ─────────────────────────────────────
-  const loadCandles = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    setCandles(null);
+  const loadCandles = useCallback(async (silent = false) => {
+    if (!silent) { setLoading(true); setError(null); setCandles(null); }
     try {
       const data = await fetchKlines(selectedCoin, period, interval);
       if (!data || data.length < 30) throw new Error("캔들 데이터가 너무 적습니다");
       setCandles(data);
+      setLastRefresh(new Date());
     } catch (e) {
-      setError(e.message || "데이터 로드 실패");
+      if (!silent) setError(e.message || "데이터 로드 실패");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [selectedCoin, period, interval]);
 
-  useEffect(() => { loadCandles(); }, [loadCandles]);
+  // 최초 로드
+  useEffect(() => { loadCandles(false); }, [loadCandles]);
+
+  // ── 자동 갱신 (분봉만) ───────────────────────────────────
+  useEffect(() => {
+    const ms = getRefreshMs(interval);
+    if (!ms) return;
+    const id = setInterval(() => loadCandles(true), ms);
+    return () => clearInterval(id);
+  }, [interval, loadCandles]);
 
   // ── 차트 생성 / 업데이트 ─────────────────────────────────
   useEffect(() => {
-    if (!candles || !mainRef.current || !adxRef.current) return;
+    if (!candles || !mainRef.current) return;
 
     // ── 기존 차트 제거 ──
     if (mainChartRef.current) { mainChartRef.current.remove(); mainChartRef.current = null; }
+    if (volChartRef.current)  { volChartRef.current.remove();  volChartRef.current  = null; }
     if (adxChartRef.current)  { adxChartRef.current.remove();  adxChartRef.current  = null; }
     seriesRefs.current = {};
 
+    const toUnix = (c) => Math.floor(c.time / 1000);
+
     // ── 메인 차트 생성 ──
-    const mainChart = createChart(mainRef.current, baseChartOptions(420));
+    const mainChart = createChart(mainRef.current, baseChartOptions(400, interval));
     mainChartRef.current = mainChart;
 
     // 캔들스틱
@@ -152,7 +202,7 @@ export default function ChartTab() {
       wickDownColor:    C.wick_down,
     });
     const candleData = candles.map((c) => ({
-      time:  Math.floor(c.time / 1000),
+      time:  toUnix(c),
       open:  c.open,
       high:  c.high,
       low:   c.low,
@@ -165,7 +215,7 @@ export default function ChartTab() {
     if (showBoll) {
       const { upper, mid, lower } = calcBollinger(candles, bollPeriod, bollMult);
       const toLineData = (arr) =>
-        arr.map((v, i) => v == null ? null : { time: Math.floor(candles[i].time / 1000), value: v })
+        arr.map((v, i) => v == null ? null : { time: toUnix(candles[i]), value: v })
            .filter(Boolean);
 
       const bollUpperSeries = mainChart.addSeries(LineSeries, { color: C.boll_upper, lineWidth: 1, lineStyle: 2, title: `BB상단(${bollPeriod},${bollMult})` });
@@ -179,7 +229,7 @@ export default function ChartTab() {
     // ── HMA ──
     if (showHMA) {
       const hmaArr = calcHMA(candles, hmaPeriod);
-      const hmaData = hmaArr.map((v, i) => v == null ? null : { time: Math.floor(candles[i].time / 1000), value: v }).filter(Boolean);
+      const hmaData = hmaArr.map((v, i) => v == null ? null : { time: toUnix(candles[i]), value: v }).filter(Boolean);
       const hmaSeries = mainChart.addSeries(LineSeries, { color: C.hma, lineWidth: 2, title: `HMA(${hmaPeriod})` });
       hmaSeries.setData(hmaData);
     }
@@ -187,7 +237,7 @@ export default function ChartTab() {
     // ── VWAP ──
     if (showVWAP) {
       const vwapArr = calcVWAP(candles);
-      const vwapData = vwapArr.map((v, i) => v == null ? null : { time: Math.floor(candles[i].time / 1000), value: v }).filter(Boolean);
+      const vwapData = vwapArr.map((v, i) => v == null ? null : { time: toUnix(candles[i]), value: v }).filter(Boolean);
       const vwapSeries = mainChart.addSeries(LineSeries, { color: C.vwap, lineWidth: 1, lineStyle: 3, title: "VWAP" });
       vwapSeries.setData(vwapData);
     }
@@ -196,12 +246,10 @@ export default function ChartTab() {
     if (showSignals) {
       const allMarkers = [];
 
-      // 볼린저 신호
       if (showBoll) {
-        const sigs = signalsBollinger(candles, bollPeriod, bollMult);
-        sigs.forEach((s) => {
+        signalsBollinger(candles, bollPeriod, bollMult).forEach((s) => {
           allMarkers.push({
-            time:     Math.floor(candles[s.index].time / 1000),
+            time:     toUnix(candles[s.index]),
             position: s.action === "buy" ? "belowBar" : "aboveBar",
             color:    s.action === "buy" ? "#5d9bff" : "#ff5d5d",
             shape:    s.action === "buy" ? "arrowUp" : "arrowDown",
@@ -210,13 +258,10 @@ export default function ChartTab() {
           });
         });
       }
-
-      // HMA 신호
       if (showHMA) {
-        const sigs = signalsHMA(candles, hmaPeriod);
-        sigs.forEach((s) => {
+        signalsHMA(candles, hmaPeriod).forEach((s) => {
           allMarkers.push({
-            time:     Math.floor(candles[s.index].time / 1000),
+            time:     toUnix(candles[s.index]),
             position: s.action === "buy" ? "belowBar" : "aboveBar",
             color:    s.action === "buy" ? "#ffd700" : "#ff9900",
             shape:    s.action === "buy" ? "arrowUp" : "arrowDown",
@@ -225,13 +270,10 @@ export default function ChartTab() {
           });
         });
       }
-
-      // ADX 신호
       if (showADX) {
-        const sigs = signalsADX(candles, adxPeriod, adxThresh);
-        sigs.forEach((s) => {
+        signalsADX(candles, adxPeriod, adxThresh).forEach((s) => {
           allMarkers.push({
-            time:     Math.floor(candles[s.index].time / 1000),
+            time:     toUnix(candles[s.index]),
             position: s.action === "buy" ? "belowBar" : "aboveBar",
             color:    s.action === "buy" ? "#4caf6e" : "#ff5d5d",
             shape:    s.action === "buy" ? "arrowUp" : "arrowDown",
@@ -240,13 +282,10 @@ export default function ChartTab() {
           });
         });
       }
-
-      // VWAP 신호
       if (showVWAP) {
-        const sigs = signalsVWAP(candles);
-        sigs.forEach((s) => {
+        signalsVWAP(candles).forEach((s) => {
           allMarkers.push({
-            time:     Math.floor(candles[s.index].time / 1000),
+            time:     toUnix(candles[s.index]),
             position: s.action === "buy" ? "belowBar" : "aboveBar",
             color:    s.action === "buy" ? "#c084fc" : "#a855f7",
             shape:    s.action === "buy" ? "arrowUp" : "arrowDown",
@@ -256,22 +295,51 @@ export default function ChartTab() {
         });
       }
 
-      // 시간순 정렬 후 적용
       allMarkers.sort((a, b) => a.time - b.time);
       createSeriesMarkers(candleSeries, allMarkers);
     }
 
+    // ── 거래량 패널 ──
+    if (showVolume && volRef.current) {
+      const volChart = createChart(volRef.current, {
+        ...baseChartOptions(120, interval),
+        rightPriceScale: { borderColor: C.border, scaleMargins: { top: 0.1, bottom: 0 } },
+      });
+      volChartRef.current = volChart;
+
+      const volSeries = volChart.addSeries(HistogramSeries, {
+        priceFormat: { type: "volume" },
+        priceScaleId: "right",
+      });
+      const volData = candles.map((c) => ({
+        time:  toUnix(c),
+        value: c.volume,
+        color: c.close >= c.open ? C.vol_up : C.vol_down,
+      }));
+      volSeries.setData(volData);
+
+      // 메인 차트와 시간축 동기화
+      mainChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+        if (range) volChart.timeScale().setVisibleLogicalRange(range);
+      });
+      volChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+        if (range) mainChart.timeScale().setVisibleLogicalRange(range);
+      });
+    }
+
     // ── ADX 패널 차트 ──
-    if (showADX) {
+    if (showADX && adxRef.current) {
       const adxChart = createChart(adxRef.current, {
-        ...baseChartOptions(180),
-        timeScale: { borderColor: C.border, timeVisible: true, visible: true },
+        ...baseChartOptions(160, interval),
+        timeScale: { borderColor: C.border, timeVisible: true, visible: true,
+          tickMarkFormatter: (unixSec) => formatKST(unixSec, interval) },
+        localization: { timeFormatter: (unixSec) => formatKST(unixSec, interval) },
       });
       adxChartRef.current = adxChart;
 
       const { adx, plusDI, minusDI } = calcADX(candles, adxPeriod);
       const toLineData = (arr) =>
-        arr.map((v, i) => v == null ? null : { time: Math.floor(candles[i].time / 1000), value: v })
+        arr.map((v, i) => v == null ? null : { time: toUnix(candles[i]), value: v })
            .filter(Boolean);
 
       const adxSeries      = adxChart.addSeries(LineSeries, { color: C.adx,      lineWidth: 2, title: `ADX(${adxPeriod})` });
@@ -282,9 +350,7 @@ export default function ChartTab() {
       plusDISeries.setData(toLineData(plusDI));
       minusDISeries.setData(toLineData(minusDI));
 
-      // 임계값 기준선
-      const threshData = candles
-        .map((c) => ({ time: Math.floor(c.time / 1000), value: adxThresh }));
+      const threshData = candles.map((c) => ({ time: toUnix(c), value: adxThresh }));
       const threshSeries = adxChart.addSeries(LineSeries, { color: "#3a4048", lineWidth: 1, lineStyle: 2, title: `임계(${adxThresh})` });
       threshSeries.setData(threshData);
 
@@ -299,22 +365,23 @@ export default function ChartTab() {
 
     // 차트 크기 자동 조정
     const ro = new ResizeObserver(() => {
-      if (mainChartRef.current && mainRef.current) {
+      if (mainChartRef.current && mainRef.current)
         mainChartRef.current.applyOptions({ width: mainRef.current.clientWidth });
-      }
-      if (adxChartRef.current && adxRef.current) {
+      if (volChartRef.current && volRef.current)
+        volChartRef.current.applyOptions({ width: volRef.current.clientWidth });
+      if (adxChartRef.current && adxRef.current)
         adxChartRef.current.applyOptions({ width: adxRef.current.clientWidth });
-      }
     });
     if (mainRef.current) ro.observe(mainRef.current);
 
     return () => {
       ro.disconnect();
       if (mainChartRef.current) { mainChartRef.current.remove(); mainChartRef.current = null; }
+      if (volChartRef.current)  { volChartRef.current.remove();  volChartRef.current  = null; }
       if (adxChartRef.current)  { adxChartRef.current.remove();  adxChartRef.current  = null; }
     };
-  }, [candles, showBoll, showHMA, showVWAP, showADX, showSignals,
-      bollPeriod, bollMult, hmaPeriod, adxPeriod, adxThresh]);
+  }, [candles, showBoll, showHMA, showVWAP, showADX, showVolume, showSignals,
+      bollPeriod, bollMult, hmaPeriod, adxPeriod, adxThresh, interval]);
 
   // ── 스타일 ───────────────────────────────────────────────
   const inputStyle = {
@@ -340,6 +407,8 @@ export default function ChartTab() {
     </button>
   );
 
+  const refreshMs = getRefreshMs(interval);
+
   return (
     <div>
       {/* ── 설정 패널 ── */}
@@ -350,7 +419,7 @@ export default function ChartTab() {
       }}>
         {/* 코인 선택 */}
         <div style={{ position: "relative" }}>
-          <label style={labelStyle}>코인 (바이낸스 USDT)</label>
+          <label style={labelStyle}>코인 (업비트 KRW)</label>
           <input
             value={showDropdown ? coinQuery : selectedCoin}
             onChange={(e) => { setCoinQuery(e.target.value.toUpperCase()); setShowDropdown(true); }}
@@ -448,13 +517,29 @@ export default function ChartTab() {
         {toggleBtn(showHMA,     C.hma,        `HMA(${hmaPeriod})`,                () => setShowHMA(v => !v))}
         {toggleBtn(showVWAP,    C.vwap,       "VWAP",                             () => setShowVWAP(v => !v))}
         {toggleBtn(showADX,     C.adx,        `ADX(${adxPeriod})`,                () => setShowADX(v => !v))}
+        {toggleBtn(showVolume,  "#4caf6e",    "거래량",                            () => setShowVolume(v => !v))}
         {toggleBtn(showSignals, "#9198a1",    "신호마커",                          () => setShowSignals(v => !v))}
+
+        {/* 수동 새로고침 버튼 */}
+        <button
+          onClick={() => loadCandles(false)}
+          disabled={loading}
+          style={{
+            marginLeft: "auto",
+            background: "#11151a", border: "1px solid #2a313c", borderRadius: 7,
+            padding: "4px 10px", color: "#9198a1", fontSize: 11, cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 4,
+          }}
+        >
+          <RefreshCw size={11} className={loading ? "spin" : ""} />
+          새로고침
+        </button>
       </div>
 
-      {/* ── 범례 ── */}
+      {/* ── 범례 + 갱신 시각 ── */}
       <div style={{
         display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 12,
-        fontSize: 11, color: "#5c6370",
+        fontSize: 11, color: "#5c6370", alignItems: "center",
       }}>
         {showBoll && <>
           <span style={{ color: C.boll_upper }}>── BB상단</span>
@@ -478,6 +563,12 @@ export default function ChartTab() {
           <span style={{ color: "#c084fc" }}>▲ VP매수</span>
           <span style={{ color: "#a855f7" }}>▼ VP매도</span>
         </>}
+        {lastRefresh && (
+          <span style={{ marginLeft: "auto", color: "#3a4048" }}>
+            갱신: {lastRefresh.toLocaleTimeString("ko-KR")}
+            {refreshMs && <span style={{ color: "#1f6feb" }}> · {refreshMs / 1000}초마다 자동갱신</span>}
+          </span>
+        )}
       </div>
 
       {/* ── 로딩 / 에러 ── */}
@@ -498,7 +589,7 @@ export default function ChartTab() {
         </div>
       )}
 
-      {/* ── 메인 차트 ── */}
+      {/* ── 차트 영역 ── */}
       {!loading && !error && (
         <>
           <div style={{ fontSize: 12, color: "#5c6370", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
@@ -506,31 +597,42 @@ export default function ChartTab() {
             <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: "#9198a1", fontWeight: 700 }}>KRW-{selectedCoin}</span>
             <span>{currentIntervalOpt.label} 캔들차트 (업비트)</span>
           </div>
+
+          {/* 메인 캔들 차트 */}
           <div
             ref={mainRef}
-            style={{
-              width: "100%", borderRadius: 10, overflow: "hidden",
-              border: "1px solid #1c2128",
-            }}
+            style={{ width: "100%", borderRadius: 10, overflow: "hidden", border: "1px solid #1c2128" }}
           />
+
+          {/* 거래량 패널 */}
+          {showVolume && (
+            <>
+              <div style={{ fontSize: 11, color: "#5c6370", margin: "8px 0 4px", paddingLeft: 2 }}>
+                거래량 — <span style={{ color: C.candle_up }}>▌상승</span> / <span style={{ color: C.candle_down }}>▌하락</span>
+              </div>
+              <div
+                ref={volRef}
+                style={{ width: "100%", borderRadius: 10, overflow: "hidden", border: "1px solid #1c2128" }}
+              />
+            </>
+          )}
+
+          {/* ADX 패널 */}
           {showADX && (
             <>
-              <div style={{ fontSize: 11, color: "#5c6370", margin: "10px 0 6px", paddingLeft: 2 }}>
+              <div style={{ fontSize: 11, color: "#5c6370", margin: "8px 0 4px", paddingLeft: 2 }}>
                 ADX 패널 — <span style={{ color: C.adx }}>ADX</span> / <span style={{ color: C.plus_di }}>+DI</span> / <span style={{ color: C.minus_di }}>-DI</span>
               </div>
               <div
                 ref={adxRef}
-                style={{
-                  width: "100%", borderRadius: 10, overflow: "hidden",
-                  border: "1px solid #1c2128",
-                }}
+                style={{ width: "100%", borderRadius: 10, overflow: "hidden", border: "1px solid #1c2128" }}
               />
             </>
           )}
         </>
       )}
 
-      {/* 스핀 애니메이션 (OptimizerTab과 공유) */}
+      {/* 스핀 애니메이션 */}
       <style>{`
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .spin { animation: spin 1s linear infinite; }

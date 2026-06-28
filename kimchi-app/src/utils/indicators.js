@@ -59,7 +59,7 @@ export async function fetchKlines(symbolBase, totalCount, interval = "1d") {
   }
 
   return allRows.map((row) => ({
-    time: new Date(row.candle_date_time_utc).getTime(),
+    time: new Date(row.candle_date_time_utc + "Z").getTime(),
     open:   row.opening_price,
     high:   row.high_price,
     low:    row.low_price,
