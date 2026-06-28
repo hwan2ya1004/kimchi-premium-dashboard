@@ -26,8 +26,13 @@ function upbitCandleUrl(symbol, interval, count, to) {
   if (interval === "1w") {
     return `/api/upbit/v1/candles/weeks?market=${market}&count=${count}${toParam}`;
   }
-  // 분봉: 1, 3, 5, 10, 15, 30, 60, 240
-  const unit = String(interval).replace("m", "");
+  // 월봉
+  if (interval === "1M") {
+    return `/api/upbit/v1/candles/months?market=${market}&count=${count}${toParam}`;
+  }
+  // 분봉: "1m"→1, "5m"→5, "15m"→15, "60m"→60, "240m"→240
+  const unit = parseInt(String(interval).replace("m", ""), 10);
+  if (isNaN(unit)) throw new Error(`지원하지 않는 인터벌: ${interval}`);
   return `/api/upbit/v1/candles/minutes/${unit}?market=${market}&count=${count}${toParam}`;
 }
 
