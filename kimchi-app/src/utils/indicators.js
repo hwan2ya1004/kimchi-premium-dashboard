@@ -19,11 +19,16 @@ export async function fetchAllUsdtSymbols() {
 }
 
 export async function fetchKlines(symbolBase, days) {
-  const url = `https://api.binance.com/api/v3/klines?symbol=${symbolBase}USDT&interval=1d&limit=${days}`;
+  // limit을 days+2로 요청해 오늘 진행 중인 캔들까지 포함
+  // 바이낸스는 UTC 기준이므로 한국시간(UTC+9) 오전 9시 이전엔 어제 캔들이 최신
+  const limit = Math.min(days + 2, 1000);
+  const url = `https://api.binance.com/api/v3/klines?symbol=${symbolBase}USDT&interval=1d&limit=${limit}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error("klines");
   const data = await res.json();
-  return data.map((row) => ({
+  // 요청한 days 개수만큼만 잘라서 반환 (최신 데이터 기준)
+  const rows = data.slice(-days);
+  return rows.map((row) => ({
     time: row[0],
     open: parseFloat(row[1]),
     high: parseFloat(row[2]),

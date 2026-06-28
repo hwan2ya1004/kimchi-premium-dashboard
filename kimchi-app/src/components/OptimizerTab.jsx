@@ -107,9 +107,9 @@ export default function OptimizerTab() {
   }, []);
 
   const filteredSymbols = useMemo(() => {
-    if (!coinQuery) return allSymbols.slice(0, 30);
+    if (!coinQuery) return allSymbols.slice(0, 100);
     const q = coinQuery.toUpperCase();
-    return allSymbols.filter((s) => s.includes(q)).slice(0, 30);
+    return allSymbols.filter((s) => s.includes(q)).slice(0, 100);
   }, [allSymbols, coinQuery]);
 
   // ── 캔들 데이터 로드 ─────────────────────────────────────
