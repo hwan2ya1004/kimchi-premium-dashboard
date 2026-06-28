@@ -6,7 +6,7 @@ import { COLORS, rgba } from "../constants/colors.js";
 import { WarningBadge, CautionBadge, NewListingBadge } from "./Badges.jsx";
 import ExchangeRow from "./ExchangeRow.jsx";
 
-export default function CoinCard({ coin, name, snapshot, high, low, usdKrw, warning, caution, isNewListing, isHot }) {
+export default function CoinCard({ coin, name, snapshot, high, low, usdKrw, warning, caution, isNewListing, isHot, isVpBuy }) {
   const binanceKrw   = snapshot?.binance != null && usdKrw != null ? snapshot.binance * usdKrw : null;
   const upbitAlert   = snapshot?.upbitPremium   != null && (snapshot.upbitPremium   >= high || snapshot.upbitPremium   <= low);
   const bithumbAlert = snapshot?.bithumbPremium != null && (snapshot.bithumbPremium >= high || snapshot.bithumbPremium <= low);
@@ -100,6 +100,19 @@ export default function CoinCard({ coin, name, snapshot, high, low, usdKrw, warn
                 }}
               >
                 {isHighPremium ? "📈 김치프리미엄" : "📉 역프리미엄"}
+              </span>
+            )}
+            {isVpBuy && (
+              <span
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 3,
+                  background: "rgba(192,132,252,0.18)",
+                  border: "1px solid rgba(192,132,252,0.55)",
+                  color: "#c084fc",
+                  fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 999, letterSpacing: 0.3, whiteSpace: "nowrap",
+                }}
+              >
+                💜 VP▲
               </span>
             )}
           </div>

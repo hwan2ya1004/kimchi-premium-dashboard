@@ -2,13 +2,14 @@
 // 김치프리미엄 대시보드 — 메인 컴포넌트
 // ============================================================
 
-import { useState, useCallback, useMemo } from "react";
-import { RefreshCw, AlertTriangle, Wifi, WifiOff, Settings2, Bell, BarChart2 } from "lucide-react";
+import { useState, useCallback, useMemo, useRef } from "react";
+import { RefreshCw, AlertTriangle, Wifi, WifiOff, Settings2, Bell, BarChart2, Search, X } from "lucide-react";
 
 import { useMarketData }     from "./hooks/useMarketData.js";
 import { useTelegramAlert }  from "./hooks/useTelegramAlert.js";
 import { isTelegramEnabled } from "./utils/telegram.js";
 import { COLORS }            from "./constants/colors.js";
+import { fetchKlines, signalsVWAP } from "./utils/indicators.js";
 
 import SignalPanel from "./components/SignalPanel.jsx";
 import CoinCard    from "./components/CoinCard.jsx";
@@ -27,6 +28,16 @@ const SORT_OPTIONS = [
   { value: "symbol_az",    label: "🔤 심볼 A-Z" },
 ];
 
+// ── VP 스캔 인터벌 옵션 ─────────────────────────────────────
+const VP_SCAN_INTERVAL_OPTIONS = [
+  { value: "1d",   label: "일봉",    period: 90  },
+  { value: "240m", label: "4시간봉", period: 90  },
+  { value: "60m",  label: "1시간봉", period: 168 },
+  { value: "15m",  label: "15분봉",  period: 96  },
+  { value: "5m",   label: "5분봉",   period: 288 },
+  { value: "1m",   label: "1분봉",   period: 240 },
+];
+
 export default function KimchiPremiumDashboard() {
   const [mainTab, setMainTab]           = useState("monitor"); // 'monitor' | 'chart'
   const [high, setHigh]                 = useState(DEFAULT_HIGH);
@@ -37,6 +48,16 @@ export default function KimchiPremiumDashboard() {
   const [sortBy, setSortBy]             = useState("premium_desc");
   const [tgStatus, setTgStatus]         = useState(null);
   const [tgStatusMsg, setTgStatusMsg]   = useState("");
+
+  // ── VP 스캔 상태 ─────────────────────────────────────────
+  const [vpScanning, setVpScanning]         = useState(false);
+  const [vpProgress, setVpProgress]         = useState(0);
+  const [vpTotal, setVpTotal]               = useState(0);
+  const [vpSymbols, setVpSymbols]           = useState(null); // null=미스캔, Set=스캔완료
+  const [vpScanInterval, setVpScanInterval] = useState("1d");
+  const [vpScanPeriod, setVpScanPeriod]     = useState(90);
+  const [showVpPanel, setShowVpPanel]       = useState(false);
+  const vpAbortRef = useRef(false);
 
   // 시장 데이터 훅
   const {
@@ -59,6 +80,7 @@ export default function KimchiPremiumDashboard() {
 
   useTelegramAlert({
     coinList, snapshots,
+    vpSymbols,
     onSuccess: handleTgSuccess,
     onError:   handleTgError,
   });
@@ -69,6 +91,57 @@ export default function KimchiPremiumDashboard() {
     if (!snap) return null;
     return snap.upbitPremium ?? snap.bithumbPremium ?? null;
   }, [snapshots]);
+
+  // ── VP 스캔 실행 ─────────────────────────────────────────
+  const startVpScan = useCallback(async () => {
+    if (coinList.length === 0) return;
+    vpAbortRef.current = false;
+    setVpScanning(true);
+    setVpSymbols(null);
+    setVpProgress(0);
+    setVpTotal(coinList.length);
+
+    const found = new Set();
+    const BATCH = 3;
+    const DELAY_MS = 300;
+
+    for (let i = 0; i < coinList.length; i += BATCH) {
+      if (vpAbortRef.current) break;
+      const batch = coinList.slice(i, i + BATCH);
+
+      await Promise.all(
+        batch.map(async (coin) => {
+          try {
+            const candles = await fetchKlines(coin.symbol, vpScanPeriod, vpScanInterval);
+            if (!candles || candles.length < 20) return;
+            const sigs = signalsVWAP(candles);
+            // 최근 3개 캔들 내 VWAP 상향돌파 신호
+            const recentBuy = sigs.filter(
+              (s) => s.action === "buy" && s.index >= candles.length - 3
+            );
+            if (recentBuy.length > 0) found.add(coin.symbol);
+          } catch {
+            // 개별 코인 실패 무시
+          }
+        })
+      );
+
+      setVpProgress(Math.min(i + BATCH, coinList.length));
+      if (i + BATCH < coinList.length) {
+        await new Promise((r) => setTimeout(r, DELAY_MS));
+      }
+    }
+
+    setVpSymbols(new Set(found));
+    setVpScanning(false);
+  }, [coinList, vpScanPeriod, vpScanInterval]);
+
+  const stopVpScan = useCallback(() => {
+    vpAbortRef.current = true;
+    setVpScanning(false);
+  }, []);
+
+  const vpProgressPct = vpTotal > 0 ? Math.round((vpProgress / vpTotal) * 100) : 0;
 
   // ── 카운트 계산 ─────────────────────────────────────────
   const warningCount = useMemo(
@@ -98,9 +171,9 @@ export default function KimchiPremiumDashboard() {
   const hotCount = useMemo(
     () => coinList.filter((c) => {
       if (c.warning) return false;
-      const onlyVolumeSurge = c.caution.length === 1 && c.caution[0] === "TRADING_VOLUME_SOARING";
+      const hasVolumeSurge = c.caution.includes("TRADING_VOLUME_SOARING");
       const premium = getCoinPremium(c.symbol);
-      return onlyVolumeSurge && premium !== null && premium < 0;
+      return hasVolumeSurge && premium !== null && premium < 0;
     }).length,
     [coinList, getCoinPremium]
   );
@@ -137,9 +210,9 @@ export default function KimchiPremiumDashboard() {
     } else if (activeTab === "hot") {
       list = list.filter((c) => {
         if (c.warning) return false;
-        const onlyVolumeSurge = c.caution.length === 1 && c.caution[0] === "TRADING_VOLUME_SOARING";
+        const hasVolumeSurge = c.caution.includes("TRADING_VOLUME_SOARING");
         const premium = getCoinPremium(c.symbol);
-        return onlyVolumeSurge && premium !== null && premium < 0;
+        return hasVolumeSurge && premium !== null && premium < 0;
       });
     }
 
@@ -401,15 +474,164 @@ export default function KimchiPremiumDashboard() {
             </div>
           </div>
 
-          {/* 🔥 급등+역프리미엄 배너 */}
+          {/* 🔥 급등+역프리미엄 배너 + VP 스캔 패널 */}
           {activeTab === "hot" && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,107,53,0.08)", border: "1px solid rgba(255,107,53,0.35)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13, color: "#ff9a6c" }}>
-              <span style={{ fontSize: 16 }}>🔥</span>
-              <span>
-                <strong>거래량 급등</strong> 주의 지정 코인 중 <strong>역프리미엄(국내가 해외보다 싼)</strong> 코인입니다.
-                해외에서 먼저 오르고 있어 국내도 곧 따라 오를 가능성이 있습니다. 소액 분할 매수를 권장합니다.
-              </span>
-            </div>
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,107,53,0.08)", border: "1px solid rgba(255,107,53,0.35)", borderRadius: 10, padding: "10px 14px", marginBottom: 10, fontSize: 13, color: "#ff9a6c" }}>
+                <span style={{ fontSize: 16 }}>🔥</span>
+                <span>
+                  <strong>거래량 급등</strong> 주의 지정 코인 중 <strong>역프리미엄(국내가 해외보다 싼)</strong> 코인입니다.
+                  해외에서 먼저 오르고 있어 국내도 곧 따라 오를 가능성이 있습니다. 소액 분할 매수를 권장합니다.
+                </span>
+              </div>
+
+              {/* VP 스캔 패널 */}
+              <div style={{ marginBottom: 14 }}>
+                {/* 스캔 토글 버튼 */}
+                <button
+                  onClick={() => setShowVpPanel((v) => !v)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    background: showVpPanel ? "rgba(192,132,252,0.15)" : "#11151a",
+                    border: `1px solid ${showVpPanel ? "#c084fc" : "#2a313c"}`,
+                    borderRadius: 8, padding: "6px 14px",
+                    color: showVpPanel ? "#c084fc" : "#7d8590",
+                    fontSize: 12, fontWeight: 700, cursor: "pointer",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  <Search size={13} />
+                  💜 VP(VWAP) 매수 신호 스캔
+                  {vpSymbols !== null && !vpScanning && (
+                    <span style={{
+                      background: vpSymbols.size > 0 ? "rgba(192,132,252,0.25)" : "rgba(92,99,112,0.25)",
+                      color: vpSymbols.size > 0 ? "#c084fc" : "#5c6370",
+                      fontSize: 10, fontWeight: 700, padding: "1px 6px",
+                      borderRadius: 999, marginLeft: 2,
+                    }}>
+                      {vpSymbols.size}개 감지
+                    </span>
+                  )}
+                </button>
+
+                {/* 스캔 패널 본문 */}
+                {showVpPanel && (
+                  <div style={{
+                    marginTop: 8,
+                    background: "#11151a",
+                    border: "1px solid rgba(192,132,252,0.3)",
+                    borderRadius: 12, padding: 16,
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 12, color: "#c084fc", fontWeight: 700 }}>
+                        🔍 VP(VWAP) 매수 신호 스캔
+                      </span>
+                      <span style={{ fontSize: 11, color: "#5c6370" }}>
+                        — 최근 3개 캔들 내 VWAP 상향돌파 코인 탐색 후 급등+역프리미엄 코인과 교차 표시
+                      </span>
+                    </div>
+
+                    {/* 스캔 설정 */}
+                    <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+                      <div>
+                        <div style={{ fontSize: 11, color: "#7d8590", marginBottom: 4 }}>인터벌</div>
+                        <select
+                          value={vpScanInterval}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setVpScanInterval(val);
+                            const opt = VP_SCAN_INTERVAL_OPTIONS.find((o) => o.value === val);
+                            if (opt) setVpScanPeriod(opt.period);
+                          }}
+                          disabled={vpScanning}
+                          style={{
+                            background: "#0a0d11", border: "1px solid #2a313c", borderRadius: 7,
+                            padding: "5px 10px", color: "#e6edf3", fontSize: 12, cursor: "pointer", outline: "none",
+                          }}
+                        >
+                          {VP_SCAN_INTERVAL_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, color: "#7d8590", marginBottom: 4 }}>
+                          스캔 대상: <span style={{ color: "#9198a1", fontWeight: 700 }}>{coinList.length}개 코인</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: "#5c6370" }}>
+                          기간: {vpScanPeriod}개 캔들
+                        </div>
+                      </div>
+
+                      {!vpScanning ? (
+                        <button
+                          onClick={startVpScan}
+                          disabled={coinList.length === 0}
+                          style={{
+                            background: "rgba(192,132,252,0.15)",
+                            border: "1px solid #c084fc",
+                            borderRadius: 8, padding: "7px 18px",
+                            color: "#c084fc", fontSize: 12, fontWeight: 700,
+                            cursor: coinList.length === 0 ? "not-allowed" : "pointer",
+                            display: "flex", alignItems: "center", gap: 6,
+                          }}
+                        >
+                          <Search size={13} />
+                          스캔 시작
+                        </button>
+                      ) : (
+                        <button
+                          onClick={stopVpScan}
+                          style={{
+                            background: "rgba(255,93,93,0.12)",
+                            border: "1px solid #ff5d5d",
+                            borderRadius: 8, padding: "7px 18px",
+                            color: "#ff5d5d", fontSize: 12, fontWeight: 700,
+                            cursor: "pointer",
+                            display: "flex", alignItems: "center", gap: 6,
+                          }}
+                        >
+                          <X size={13} />
+                          중단
+                        </button>
+                      )}
+                    </div>
+
+                    {/* 진행 바 */}
+                    {vpScanning && (
+                      <div style={{ marginBottom: 12 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#7d8590", marginBottom: 4 }}>
+                          <span>스캔 중… {vpProgress} / {vpTotal}</span>
+                          <span>{vpProgressPct}%</span>
+                        </div>
+                        <div style={{ background: "#1c2128", borderRadius: 999, height: 6, overflow: "hidden" }}>
+                          <div style={{
+                            background: "linear-gradient(90deg, #c084fc, #a855f7)",
+                            height: "100%", borderRadius: 999,
+                            width: `${vpProgressPct}%`,
+                            transition: "width 0.3s ease",
+                          }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 스캔 결과 요약 */}
+                    {vpSymbols !== null && !vpScanning && (
+                      <div style={{ fontSize: 12, color: "#7d8590" }}>
+                        {vpSymbols.size === 0 ? (
+                          <span style={{ color: "#5c6370" }}>VP 매수 신호 코인이 없습니다.</span>
+                        ) : (
+                          <span>
+                            <span style={{ color: "#c084fc", fontWeight: 700 }}>💜 VP 신호 {vpSymbols.size}개</span> 감지됨 —
+                            아래 코인 카드에서 <span style={{ color: "#c084fc", fontWeight: 600 }}>💜 VP▲</span> 뱃지로 표시됩니다.
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
           )}
 
           {/* 상장폐지 경고 배너 */}
@@ -449,6 +671,7 @@ export default function KimchiPremiumDashboard() {
                     !warning &&
                     caution.includes("TRADING_VOLUME_SOARING") &&
                     (() => { const p = getCoinPremium(symbol); return p !== null && p < 0; })();
+                  const isVpBuy = vpSymbols !== null && vpSymbols.has(symbol);
                   return (
                     <CoinCard
                       key={symbol}
@@ -458,6 +681,7 @@ export default function KimchiPremiumDashboard() {
                       warning={warning} caution={caution}
                       isNewListing={!binanceSymbolsRef.current.has(symbol)}
                       isHot={isHot}
+                      isVpBuy={isVpBuy}
                     />
                   );
                 })}
@@ -475,6 +699,7 @@ export default function KimchiPremiumDashboard() {
           <div style={{ marginTop: 24, padding: "12px 16px", background: "#11151a", border: "1px solid #1c2128", borderRadius: 10, display: "flex", flexWrap: "wrap", gap: 12, fontSize: 11, color: "#5c6370" }}>
             <span>범례:</span>
             <span style={{ color: COLORS.hot }}>🔥 급등+역프리미엄 — 거래량 급등 AND 역프리미엄 동시 감지 (매수 후보)</span>
+            <span style={{ color: "#c084fc" }}>💜 VP▲ — VWAP 상향돌파 신호 (VP 스캔 후 표시)</span>
             <span style={{ color: COLORS.danger }}>🚨 상장폐지위험 — 업비트 경고 지정 코인</span>
             <span style={{ color: COLORS.warning }}>⚠️ 주의 — 가격급변·거래량급등 등 주의 지정</span>
             <span style={{ color: COLORS.safe }}>🆕 국내전용 — 바이낸스 미상장 (국내 거래소만 거래)</span>
