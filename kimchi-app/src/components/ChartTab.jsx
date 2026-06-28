@@ -197,6 +197,8 @@ function VpScanPanel({ allCoins, onSelectCoin }) {
     { value: "240m", label: "4시간봉", period: 90  },
     { value: "60m",  label: "1시간봉", period: 168 },
     { value: "15m",  label: "15분봉",  period: 96  },
+    { value: "5m",   label: "5분봉",   period: 288 },
+    { value: "1m",   label: "1분봉",   period: 240 },
   ];
 
   const handleIntervalChange = (val) => {
