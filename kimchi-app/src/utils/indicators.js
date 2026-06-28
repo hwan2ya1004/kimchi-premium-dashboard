@@ -54,8 +54,10 @@ export async function fetchKlines(symbolBase, totalCount, interval = "1d") {
 
     // 다음 페이지: 현재 배치의 가장 오래된 캔들 시각 기준
     // data는 이미 reverse()됐으므로 allRows[0]이 가장 오래된 것
+    // to는 "이 시각 이전" 데이터를 반환하므로 1초를 빼야 중복 방지
     const oldest = allRows[0];
-    to = oldest.candle_date_time_utc;
+    const oldestMs = new Date(oldest.candle_date_time_utc + "Z").getTime();
+    to = new Date(oldestMs - 1000).toISOString().slice(0, 19);
   }
 
   return allRows.map((row) => ({
