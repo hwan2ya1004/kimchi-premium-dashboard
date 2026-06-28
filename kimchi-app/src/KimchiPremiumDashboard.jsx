@@ -3,16 +3,16 @@
 // ============================================================
 
 import { useState, useCallback, useMemo } from "react";
-import { RefreshCw, AlertTriangle, Wifi, WifiOff, Settings2, Bell, TrendingUp } from "lucide-react";
+import { RefreshCw, AlertTriangle, Wifi, WifiOff, Settings2, Bell, BarChart2 } from "lucide-react";
 
 import { useMarketData }     from "./hooks/useMarketData.js";
 import { useTelegramAlert }  from "./hooks/useTelegramAlert.js";
 import { isTelegramEnabled } from "./utils/telegram.js";
 import { COLORS }            from "./constants/colors.js";
 
-import SignalPanel   from "./components/SignalPanel.jsx";
-import CoinCard      from "./components/CoinCard.jsx";
-import OptimizerTab  from "./components/OptimizerTab.jsx";
+import SignalPanel from "./components/SignalPanel.jsx";
+import CoinCard    from "./components/CoinCard.jsx";
+import ChartTab    from "./components/ChartTab.jsx";
 
 // ── 알림 기준값 기본값 ──────────────────────────────────────
 const DEFAULT_HIGH = 3.0;
@@ -28,15 +28,15 @@ const SORT_OPTIONS = [
 ];
 
 export default function KimchiPremiumDashboard() {
-  const [mainTab, setMainTab]         = useState("monitor"); // 'monitor' | 'optimizer'
-  const [high, setHigh]               = useState(DEFAULT_HIGH);
-  const [low, setLow]                 = useState(DEFAULT_LOW);
+  const [mainTab, setMainTab]           = useState("monitor"); // 'monitor' | 'chart'
+  const [high, setHigh]                 = useState(DEFAULT_HIGH);
+  const [low, setLow]                   = useState(DEFAULT_LOW);
   const [showSettings, setShowSettings] = useState(false);
-  const [filterText, setFilterText]   = useState("");
-  const [activeTab, setActiveTab]     = useState("all");
-  const [sortBy, setSortBy]           = useState("premium_desc");
-  const [tgStatus, setTgStatus]       = useState(null);   // null | "ok" | "error"
-  const [tgStatusMsg, setTgStatusMsg] = useState("");
+  const [filterText, setFilterText]     = useState("");
+  const [activeTab, setActiveTab]       = useState("all");
+  const [sortBy, setSortBy]             = useState("premium_desc");
+  const [tgStatus, setTgStatus]         = useState(null);
+  const [tgStatusMsg, setTgStatusMsg]   = useState("");
 
   // 시장 데이터 훅
   const {
@@ -45,7 +45,7 @@ export default function KimchiPremiumDashboard() {
     refresh, binanceSymbolsRef,
   } = useMarketData(high, low);
 
-  // 텔레그램 알림 훅 (버그 수정: stale closure 없음)
+  // 텔레그램 알림 훅
   const handleTgSuccess = useCallback((msg) => {
     setTgStatus("ok");
     setTgStatusMsg(msg);
@@ -58,10 +58,7 @@ export default function KimchiPremiumDashboard() {
   }, []);
 
   useTelegramAlert({
-    coinList,
-    snapshots,
-    high,
-    low,
+    coinList, snapshots, high, low,
     onSuccess: handleTgSuccess,
     onError:   handleTgError,
   });
@@ -78,19 +75,15 @@ export default function KimchiPremiumDashboard() {
     () => coinList.filter((c) => c.warning).length,
     [coinList]
   );
-
   const cautionCount = useMemo(
     () => coinList.filter((c) => !c.warning && c.caution.length > 0).length,
     [coinList]
   );
-
   const newListingCount = useMemo(
     () => coinList.filter((c) => !binanceSymbolsRef.current.has(c.symbol)).length,
-    // binanceSymbolsRef.current는 ref라 의존성에 snapshots를 추가해 갱신 시 재계산
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [coinList, snapshots]
   );
-
   const premiumAlertCount = useMemo(
     () => coinList.filter((c) => {
       const snap = snapshots[c.symbol];
@@ -102,7 +95,6 @@ export default function KimchiPremiumDashboard() {
     }).length,
     [coinList, snapshots, high, low]
   );
-
   const hotCount = useMemo(
     () => coinList.filter((c) => {
       if (c.warning) return false;
@@ -113,21 +105,20 @@ export default function KimchiPremiumDashboard() {
     [coinList, getCoinPremium]
   );
 
-  // ── 탭 정의 ─────────────────────────────────────────────
+  // ── 코인 탭 정의 ─────────────────────────────────────────
   const tabs = useMemo(() => [
-    { id: "all",     label: "전체",           count: coinList.length,  color: COLORS.neutral },
-    { id: "hot",     label: "🔥 급등+역프리미엄", count: hotCount,         color: COLORS.hot },
-    { id: "premium", label: "📈 프리미엄",      count: premiumAlertCount, color: COLORS.danger },
-    { id: "warning", label: "🚨 폐지위험",      count: warningCount,     color: COLORS.danger },
-    { id: "caution", label: "⚠️ 주의",          count: cautionCount,     color: COLORS.warning },
-    { id: "new",     label: "🆕 국내전용",       count: newListingCount,  color: COLORS.safe },
+    { id: "all",     label: "전체",              count: coinList.length,   color: COLORS.neutral },
+    { id: "hot",     label: "🔥 급등+역프리미엄", count: hotCount,          color: COLORS.hot },
+    { id: "premium", label: "📈 프리미엄",        count: premiumAlertCount, color: COLORS.danger },
+    { id: "warning", label: "🚨 폐지위험",        count: warningCount,      color: COLORS.danger },
+    { id: "caution", label: "⚠️ 주의",            count: cautionCount,      color: COLORS.warning },
+    { id: "new",     label: "🆕 국내전용",         count: newListingCount,   color: COLORS.safe },
   ], [coinList.length, hotCount, premiumAlertCount, warningCount, cautionCount, newListingCount]);
 
-  // ── 필터 + 정렬 (useMemo로 최적화) ──────────────────────
+  // ── 필터 + 정렬 ──────────────────────────────────────────
   const filteredCoins = useMemo(() => {
     let list = coinList;
 
-    // 탭 필터
     if (activeTab === "warning") {
       list = list.filter((c) => c.warning);
     } else if (activeTab === "caution") {
@@ -152,7 +143,6 @@ export default function KimchiPremiumDashboard() {
       });
     }
 
-    // 검색 필터
     const q = filterText.trim().toUpperCase();
     if (q) {
       list = list.filter(({ symbol, name }) =>
@@ -160,26 +150,23 @@ export default function KimchiPremiumDashboard() {
       );
     }
 
-    // 정렬
     return [...list].sort((a, b) => {
       const pa = getCoinPremium(a.symbol);
       const pb = getCoinPremium(b.symbol);
-
-      const nullLast = (pa, pb, compareFn) => {
+      const nullLast = (pa, pb, fn) => {
         if (pa === null && pb === null) return 0;
         if (pa === null) return 1;
         if (pb === null) return -1;
-        return compareFn(pa, pb);
+        return fn(pa, pb);
       };
-
       switch (sortBy) {
         case "premium_desc": return nullLast(pa, pb, (a, b) => b - a);
         case "premium_asc":  return nullLast(pa, pb, (a, b) => a - b);
         case "abs_desc":     return nullLast(pa, pb, (a, b) => Math.abs(b) - Math.abs(a));
         case "alert_first": {
-          const scoreA = a.warning ? 3 : a.caution.length > 0 ? 2 : (pa !== null && (pa >= high || pa <= low)) ? 1 : 0;
-          const scoreB = b.warning ? 3 : b.caution.length > 0 ? 2 : (pb !== null && (pb >= high || pb <= low)) ? 1 : 0;
-          if (scoreB !== scoreA) return scoreB - scoreA;
+          const sA = a.warning ? 3 : a.caution.length > 0 ? 2 : (pa !== null && (pa >= high || pa <= low)) ? 1 : 0;
+          const sB = b.warning ? 3 : b.caution.length > 0 ? 2 : (pb !== null && (pb >= high || pb <= low)) ? 1 : 0;
+          if (sB !== sA) return sB - sA;
           return nullLast(pa, pb, (a, b) => Math.abs(b) - Math.abs(a));
         }
         case "symbol_az": return a.symbol.localeCompare(b.symbol);
@@ -190,23 +177,18 @@ export default function KimchiPremiumDashboard() {
 
   // ── 렌더 ────────────────────────────────────────────────
   return (
-    <div
-      style={{
-        minHeight: "100%",
-        background: "#0a0d11",
-        color: "#e6edf3",
-        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-        padding: "24px 20px",
-        boxSizing: "border-box",
-      }}
-    >
-      {/* 스핀 애니메이션 */}
+    <div style={{
+      background: "#0a0d11",
+      color: "#e6edf3",
+      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+      padding: "24px 20px",
+    }}>
       <style>{`
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .spin { animation: spin 1s linear infinite; }
       `}</style>
 
-      {/* 헤더 */}
+      {/* ── 헤더 ── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -233,20 +215,18 @@ export default function KimchiPremiumDashboard() {
                 )}
               </>
             ) : (
-              "보조지표 파라미터 그리드서치 — 바이낸스 일봉 기준 승률 최적화"
+              "업비트 KRW 마켓 캔들차트 · 지표 분석"
             )}
           </p>
         </div>
 
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {/* 텔레그램 연결 상태 */}
           {mainTab === "monitor" && isTelegramEnabled && (
             <div style={{ display: "flex", alignItems: "center", gap: 5, background: "rgba(76,175,110,0.12)", border: "1px solid rgba(76,175,110,0.4)", borderRadius: 8, padding: "5px 10px", fontSize: 11, color: COLORS.safe, fontWeight: 700 }}>
               <Bell size={11} />
               텔레그램 ON
             </div>
           )}
-          {/* 알림 전송 상태 */}
           {mainTab === "monitor" && tgStatus && (
             <div style={{ fontSize: 11, color: tgStatus === "ok" ? COLORS.safe : COLORS.danger, fontWeight: 600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {tgStatusMsg}
@@ -290,23 +270,23 @@ export default function KimchiPremiumDashboard() {
           모니터
         </button>
         <button
-          onClick={() => setMainTab("optimizer")}
+          onClick={() => setMainTab("chart")}
           style={{
             display: "flex", alignItems: "center", gap: 7,
-            background: mainTab === "optimizer" ? "#161b22" : "transparent",
-            border: mainTab === "optimizer" ? "1px solid #2a313c" : "1px solid transparent",
+            background: mainTab === "chart" ? "#161b22" : "transparent",
+            border: mainTab === "chart" ? "1px solid #2a313c" : "1px solid transparent",
             borderRadius: 9, padding: "7px 14px",
-            color: mainTab === "optimizer" ? "#e6edf3" : "#7d8590",
+            color: mainTab === "chart" ? "#e6edf3" : "#7d8590",
             fontSize: 13, fontWeight: 600, cursor: "pointer",
           }}
         >
-          <TrendingUp size={13} />
-          지표 최적화
+          <BarChart2 size={13} />
+          차트
         </button>
       </div>
 
-      {/* ── 지표 최적화 탭 ── */}
-      {mainTab === "optimizer" && <OptimizerTab binanceSymbols={binanceSymbolsRef.current} />}
+      {/* ── 차트 탭 ── */}
+      {mainTab === "chart" && <ChartTab />}
 
       {/* ── 모니터 탭 ── */}
       {mainTab === "monitor" && (
@@ -350,7 +330,7 @@ export default function KimchiPremiumDashboard() {
             </div>
           )}
 
-          {/* 검색창 (설정 패널 닫혔을 때) */}
+          {/* 검색창 */}
           {!showSettings && (
             <div style={{ marginBottom: 14 }}>
               <input
@@ -389,14 +369,12 @@ export default function KimchiPremiumDashboard() {
                   }}
                 >
                   {tab.label}
-                  <span
-                    style={{
-                      background: activeTab === tab.id ? `${tab.color}20` : "#1c2128",
-                      color: activeTab === tab.id ? tab.color : "#3a4048",
-                      fontSize: 10, fontWeight: 700, padding: "1px 5px",
-                      borderRadius: 999, fontFamily: "'IBM Plex Mono', monospace",
-                    }}
-                  >
+                  <span style={{
+                    background: activeTab === tab.id ? `${tab.color}20` : "#1c2128",
+                    color: activeTab === tab.id ? tab.color : "#3a4048",
+                    fontSize: 10, fontWeight: 700, padding: "1px 5px",
+                    borderRadius: 999, fontFamily: "'IBM Plex Mono', monospace",
+                  }}>
                     {tab.count}
                   </span>
                 </button>
@@ -423,7 +401,7 @@ export default function KimchiPremiumDashboard() {
             </div>
           </div>
 
-          {/* 🔥 급등+역프리미엄 탭 안내 배너 */}
+          {/* 🔥 급등+역프리미엄 배너 */}
           {activeTab === "hot" && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,107,53,0.08)", border: "1px solid rgba(255,107,53,0.35)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13, color: "#ff9a6c" }}>
               <span style={{ fontSize: 16 }}>🔥</span>
