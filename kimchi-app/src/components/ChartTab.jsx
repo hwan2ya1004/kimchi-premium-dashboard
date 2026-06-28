@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { createChart } from "lightweight-charts";
+import { createChart, CandlestickSeries, LineSeries, createSeriesMarkers } from "lightweight-charts";
 import { Loader2, AlertTriangle, BarChart2 } from "lucide-react";
 
 import {
@@ -138,7 +138,7 @@ export default function ChartTab() {
     mainChartRef.current = mainChart;
 
     // 캔들스틱
-    const candleSeries = mainChart.addCandlestickSeries({
+    const candleSeries = mainChart.addSeries(CandlestickSeries, {
       upColor:          C.candle_up,
       downColor:        C.candle_down,
       borderUpColor:    C.candle_up,
@@ -163,9 +163,9 @@ export default function ChartTab() {
         arr.map((v, i) => v == null ? null : { time: Math.floor(candles[i].time / 1000), value: v })
            .filter(Boolean);
 
-      const bollUpperSeries = mainChart.addLineSeries({ color: C.boll_upper, lineWidth: 1, lineStyle: 2, title: `BB상단(${bollPeriod},${bollMult})` });
-      const bollMidSeries   = mainChart.addLineSeries({ color: C.boll_mid,   lineWidth: 1, lineStyle: 1, title: "BB중간" });
-      const bollLowerSeries = mainChart.addLineSeries({ color: C.boll_lower, lineWidth: 1, lineStyle: 2, title: "BB하단" });
+      const bollUpperSeries = mainChart.addSeries(LineSeries, { color: C.boll_upper, lineWidth: 1, lineStyle: 2, title: `BB상단(${bollPeriod},${bollMult})` });
+      const bollMidSeries   = mainChart.addSeries(LineSeries, { color: C.boll_mid,   lineWidth: 1, lineStyle: 1, title: "BB중간" });
+      const bollLowerSeries = mainChart.addSeries(LineSeries, { color: C.boll_lower, lineWidth: 1, lineStyle: 2, title: "BB하단" });
       bollUpperSeries.setData(toLineData(upper));
       bollMidSeries.setData(toLineData(mid));
       bollLowerSeries.setData(toLineData(lower));
@@ -175,7 +175,7 @@ export default function ChartTab() {
     if (showHMA) {
       const hmaArr = calcHMA(candles, hmaPeriod);
       const hmaData = hmaArr.map((v, i) => v == null ? null : { time: Math.floor(candles[i].time / 1000), value: v }).filter(Boolean);
-      const hmaSeries = mainChart.addLineSeries({ color: C.hma, lineWidth: 2, title: `HMA(${hmaPeriod})` });
+      const hmaSeries = mainChart.addSeries(LineSeries, { color: C.hma, lineWidth: 2, title: `HMA(${hmaPeriod})` });
       hmaSeries.setData(hmaData);
     }
 
@@ -183,7 +183,7 @@ export default function ChartTab() {
     if (showVWAP) {
       const vwapArr = calcVWAP(candles);
       const vwapData = vwapArr.map((v, i) => v == null ? null : { time: Math.floor(candles[i].time / 1000), value: v }).filter(Boolean);
-      const vwapSeries = mainChart.addLineSeries({ color: C.vwap, lineWidth: 1, lineStyle: 3, title: "VWAP" });
+      const vwapSeries = mainChart.addSeries(LineSeries, { color: C.vwap, lineWidth: 1, lineStyle: 3, title: "VWAP" });
       vwapSeries.setData(vwapData);
     }
 
@@ -253,7 +253,7 @@ export default function ChartTab() {
 
       // 시간순 정렬 후 적용
       allMarkers.sort((a, b) => a.time - b.time);
-      candleSeries.setMarkers(allMarkers);
+      createSeriesMarkers(candleSeries, allMarkers);
     }
 
     // ── ADX 패널 차트 ──
@@ -269,9 +269,9 @@ export default function ChartTab() {
         arr.map((v, i) => v == null ? null : { time: Math.floor(candles[i].time / 1000), value: v })
            .filter(Boolean);
 
-      const adxSeries      = adxChart.addLineSeries({ color: C.adx,      lineWidth: 2, title: `ADX(${adxPeriod})` });
-      const plusDISeries   = adxChart.addLineSeries({ color: C.plus_di,  lineWidth: 1, title: "+DI" });
-      const minusDISeries  = adxChart.addLineSeries({ color: C.minus_di, lineWidth: 1, title: "-DI" });
+      const adxSeries      = adxChart.addSeries(LineSeries, { color: C.adx,      lineWidth: 2, title: `ADX(${adxPeriod})` });
+      const plusDISeries   = adxChart.addSeries(LineSeries, { color: C.plus_di,  lineWidth: 1, title: "+DI" });
+      const minusDISeries  = adxChart.addSeries(LineSeries, { color: C.minus_di, lineWidth: 1, title: "-DI" });
 
       adxSeries.setData(toLineData(adx));
       plusDISeries.setData(toLineData(plusDI));
@@ -280,7 +280,7 @@ export default function ChartTab() {
       // 임계값 기준선
       const threshData = candles
         .map((c) => ({ time: Math.floor(c.time / 1000), value: adxThresh }));
-      const threshSeries = adxChart.addLineSeries({ color: "#3a4048", lineWidth: 1, lineStyle: 2, title: `임계(${adxThresh})` });
+      const threshSeries = adxChart.addSeries(LineSeries, { color: "#3a4048", lineWidth: 1, lineStyle: 2, title: `임계(${adxThresh})` });
       threshSeries.setData(threshData);
 
       // 메인 차트와 시간축 동기화
