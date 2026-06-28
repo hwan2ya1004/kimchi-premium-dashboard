@@ -60,7 +60,7 @@ export default function OptimizerTab() {
   const [coinQuery,      setCoinQuery]      = useState("");
   const [selectedCoin,   setSelectedCoin]   = useState("BTC");
   const [showDropdown,   setShowDropdown]   = useState(false);
-  const [interval,       setInterval]       = useState("1d");
+  const [interval,       setIntervalVal]    = useState("1d");
   const [period,         setPeriod]         = useState(365);
 
   // ── 차트 상태 ────────────────────────────────────────────
@@ -391,7 +391,7 @@ export default function OptimizerTab() {
           <label style={labelStyle}>인터벌</label>
           <select value={interval} onChange={(e) => {
             const newInterval = e.target.value;
-            setInterval(newInterval);
+            setIntervalVal(newInterval);
             const opt = INTERVAL_OPTIONS.find((o) => o.value === newInterval);
             if (opt) setPeriod(opt.periods[0].v);
           }} style={inputStyle}>
