@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useState, useCallback, useMemo } from "react";
-import { RefreshCw, AlertTriangle, Wifi, WifiOff, Settings2, Bell, TrendingUp } from "lucide-react";
+import { RefreshCw, AlertTriangle, Wifi, WifiOff, Settings2, Bell, TrendingUp, BarChart2 } from "lucide-react";
 
 import { useMarketData }     from "./hooks/useMarketData.js";
 import { useTelegramAlert }  from "./hooks/useTelegramAlert.js";
@@ -13,6 +13,7 @@ import { COLORS }            from "./constants/colors.js";
 import SignalPanel   from "./components/SignalPanel.jsx";
 import CoinCard      from "./components/CoinCard.jsx";
 import OptimizerTab  from "./components/OptimizerTab.jsx";
+import ChartTab      from "./components/ChartTab.jsx";
 
 // ── 알림 기준값 기본값 ──────────────────────────────────────
 const DEFAULT_HIGH = 3.0;
@@ -28,7 +29,7 @@ const SORT_OPTIONS = [
 ];
 
 export default function KimchiPremiumDashboard() {
-  const [mainTab, setMainTab]         = useState("monitor"); // 'monitor' | 'optimizer'
+  const [mainTab, setMainTab]         = useState("monitor"); // 'monitor' | 'chart' | 'optimizer'
   const [high, setHigh]               = useState(DEFAULT_HIGH);
   const [low, setLow]                 = useState(DEFAULT_LOW);
   const [showSettings, setShowSettings] = useState(false);
@@ -290,6 +291,20 @@ export default function KimchiPremiumDashboard() {
           모니터
         </button>
         <button
+          onClick={() => setMainTab("chart")}
+          style={{
+            display: "flex", alignItems: "center", gap: 7,
+            background: mainTab === "chart" ? "#161b22" : "transparent",
+            border: mainTab === "chart" ? "1px solid #2a313c" : "1px solid transparent",
+            borderRadius: 9, padding: "7px 14px",
+            color: mainTab === "chart" ? "#e6edf3" : "#7d8590",
+            fontSize: 13, fontWeight: 600, cursor: "pointer",
+          }}
+        >
+          <BarChart2 size={13} />
+          차트
+        </button>
+        <button
           onClick={() => setMainTab("optimizer")}
           style={{
             display: "flex", alignItems: "center", gap: 7,
@@ -304,6 +319,9 @@ export default function KimchiPremiumDashboard() {
           지표 최적화
         </button>
       </div>
+
+      {/* ── 차트 탭 ── */}
+      {mainTab === "chart" && <ChartTab />}
 
       {/* ── 지표 최적화 탭 ── */}
       {mainTab === "optimizer" && <OptimizerTab />}

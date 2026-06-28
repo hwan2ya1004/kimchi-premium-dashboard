@@ -13,7 +13,7 @@ import {
 } from "../api/market.js";
 import { calcPremium } from "../utils/premium.js";
 
-const REFRESH_MS = 30000;
+const REFRESH_MS = 3000;
 
 export function useMarketData(high, low) {
   const [coinList, setCoinList]       = useState([]);
