@@ -58,7 +58,7 @@ export default function KimchiPremiumDashboard() {
   }, []);
 
   useTelegramAlert({
-    coinList, snapshots, high, low,
+    coinList, snapshots,
     onSuccess: handleTgSuccess,
     onError:   handleTgError,
   });
