@@ -612,6 +612,7 @@ export default function ChartTab() {
 
     // ── silent 업데이트 ──
     if (isSilentUpdate.current && mainChartRef.current) {
+      const scrollY = window.scrollY; // 페이지 스크롤 위치 저장
       const mainTimeScale = mainChartRef.current.timeScale();
       const currentRange = savedZoomRange.current || mainTimeScale.getVisibleLogicalRange();
 
@@ -658,6 +659,10 @@ export default function ChartTab() {
         if (volChartRef.current) volChartRef.current.timeScale().setVisibleLogicalRange(currentRange);
         if (adxChartRef.current) adxChartRef.current.timeScale().setVisibleLogicalRange(currentRange);
       }
+      // 페이지 스크롤 위치 복원
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: scrollY, behavior: "instant" });
+      });
       isSilentUpdate.current = false;
       return;
     }
