@@ -133,6 +133,9 @@ export default function ChartTab() {
   const adxChartRef  = useRef(null);
   const seriesRefs   = useRef({});
 
+  // silent 업데이트 여부 추적 (zoom 유지용)
+  const isSilentUpdate = useRef(false);
+
   // 인터벌 변경 시 기간을 해당 인터벌의 첫 번째 옵션으로 초기화
   const currentIntervalOpt = INTERVAL_OPTIONS.find((o) => o.value === interval) || INTERVAL_OPTIONS[5];
 
@@ -153,6 +156,7 @@ export default function ChartTab() {
   // ── 캔들 데이터 로드 ─────────────────────────────────────
   const loadCandles = useCallback(async (silent = false) => {
     if (!silent) { setLoading(true); setError(null); setCandles(null); }
+    isSilentUpdate.current = silent;
     try {
       const data = await fetchKlines(selectedCoin, period, interval);
       if (!data || data.length < 30) throw new Error("캔들 데이터가 너무 적습니다");
@@ -180,13 +184,150 @@ export default function ChartTab() {
   useEffect(() => {
     if (!candles || !mainRef.current) return;
 
-    // ── 기존 차트 제거 ──
+    const toUnix = (c) => Math.floor(c.time / 1000);
+
+    // ── silent 업데이트: 기존 차트가 있으면 zoom 유지하며 데이터만 갱신 ──
+    if (isSilentUpdate.current && mainChartRef.current) {
+      // 현재 zoom 범위 저장
+      const mainTimeScale = mainChartRef.current.timeScale();
+      const currentRange = mainTimeScale.getVisibleLogicalRange();
+
+      // 캔들 데이터 업데이트
+      const candleData = candles.map((c) => ({
+        time:  toUnix(c),
+        open:  c.open,
+        high:  c.high,
+        low:   c.low,
+        close: c.close,
+      }));
+      if (seriesRefs.current.candle) {
+        seriesRefs.current.candle.setData(candleData);
+      }
+
+      // 볼린저밴드 업데이트
+      if (seriesRefs.current.bollUpper && seriesRefs.current.bollMid && seriesRefs.current.bollLower) {
+        const { upper, mid, lower } = calcBollinger(candles, bollPeriod, bollMult);
+        const toLineData = (arr) =>
+          arr.map((v, i) => v == null ? null : { time: toUnix(candles[i]), value: v })
+             .filter(Boolean);
+        seriesRefs.current.bollUpper.setData(toLineData(upper));
+        seriesRefs.current.bollMid.setData(toLineData(mid));
+        seriesRefs.current.bollLower.setData(toLineData(lower));
+      }
+
+      // HMA 업데이트
+      if (seriesRefs.current.hma) {
+        const hmaArr = calcHMA(candles, hmaPeriod);
+        const hmaData = hmaArr.map((v, i) => v == null ? null : { time: toUnix(candles[i]), value: v }).filter(Boolean);
+        seriesRefs.current.hma.setData(hmaData);
+      }
+
+      // VWAP 업데이트
+      if (seriesRefs.current.vwap) {
+        const vwapArr = calcVWAP(candles);
+        const vwapData = vwapArr.map((v, i) => v == null ? null : { time: toUnix(candles[i]), value: v }).filter(Boolean);
+        seriesRefs.current.vwap.setData(vwapData);
+      }
+
+      // 신호 마커 업데이트
+      if (seriesRefs.current.candle && showSignals) {
+        const allMarkers = [];
+        if (showBoll) {
+          signalsBollinger(candles, bollPeriod, bollMult).forEach((s) => {
+            allMarkers.push({
+              time:     toUnix(candles[s.index]),
+              position: s.action === "buy" ? "belowBar" : "aboveBar",
+              color:    s.action === "buy" ? "#5d9bff" : "#ff5d5d",
+              shape:    s.action === "buy" ? "arrowUp" : "arrowDown",
+              text:     s.action === "buy" ? "BB▲" : "BB▼",
+              size:     1,
+            });
+          });
+        }
+        if (showHMA) {
+          signalsHMA(candles, hmaPeriod).forEach((s) => {
+            allMarkers.push({
+              time:     toUnix(candles[s.index]),
+              position: s.action === "buy" ? "belowBar" : "aboveBar",
+              color:    s.action === "buy" ? "#ffd700" : "#ff9900",
+              shape:    s.action === "buy" ? "arrowUp" : "arrowDown",
+              text:     s.action === "buy" ? "HMA▲" : "HMA▼",
+              size:     1,
+            });
+          });
+        }
+        if (showADX) {
+          signalsADX(candles, adxPeriod, adxThresh).forEach((s) => {
+            allMarkers.push({
+              time:     toUnix(candles[s.index]),
+              position: s.action === "buy" ? "belowBar" : "aboveBar",
+              color:    s.action === "buy" ? "#4caf6e" : "#ff5d5d",
+              shape:    s.action === "buy" ? "arrowUp" : "arrowDown",
+              text:     s.action === "buy" ? "ADX▲" : "ADX▼",
+              size:     1,
+            });
+          });
+        }
+        if (showVWAP) {
+          signalsVWAP(candles).forEach((s) => {
+            allMarkers.push({
+              time:     toUnix(candles[s.index]),
+              position: s.action === "buy" ? "belowBar" : "aboveBar",
+              color:    s.action === "buy" ? "#c084fc" : "#a855f7",
+              shape:    s.action === "buy" ? "arrowUp" : "arrowDown",
+              text:     s.action === "buy" ? "VP▲" : "VP▼",
+              size:     1,
+            });
+          });
+        }
+        allMarkers.sort((a, b) => a.time - b.time);
+        createSeriesMarkers(seriesRefs.current.candle, allMarkers);
+      }
+
+      // 거래량 업데이트
+      if (seriesRefs.current.vol) {
+        const volData = candles.map((c) => ({
+          time:  toUnix(c),
+          value: c.volume,
+          color: c.close >= c.open ? C.vol_up : C.vol_down,
+        }));
+        seriesRefs.current.vol.setData(volData);
+      }
+
+      // ADX 패널 업데이트
+      if (seriesRefs.current.adx && seriesRefs.current.plusDI && seriesRefs.current.minusDI) {
+        const { adx, plusDI, minusDI } = calcADX(candles, adxPeriod);
+        const toLineData = (arr) =>
+          arr.map((v, i) => v == null ? null : { time: toUnix(candles[i]), value: v })
+             .filter(Boolean);
+        seriesRefs.current.adx.setData(toLineData(adx));
+        seriesRefs.current.plusDI.setData(toLineData(plusDI));
+        seriesRefs.current.minusDI.setData(toLineData(minusDI));
+        if (seriesRefs.current.thresh) {
+          const threshData = candles.map((c) => ({ time: toUnix(c), value: adxThresh }));
+          seriesRefs.current.thresh.setData(threshData);
+        }
+      }
+
+      // zoom 범위 복원
+      if (currentRange) {
+        mainTimeScale.setVisibleLogicalRange(currentRange);
+        if (volChartRef.current) volChartRef.current.timeScale().setVisibleLogicalRange(currentRange);
+        if (adxChartRef.current) adxChartRef.current.timeScale().setVisibleLogicalRange(currentRange);
+      }
+
+      isSilentUpdate.current = false;
+      return;
+    }
+
+    // ── 일반 업데이트: 차트 완전 재생성 ──
+    isSilentUpdate.current = false;
+
+    // 기존 차트 제거
     if (mainChartRef.current) { mainChartRef.current.remove(); mainChartRef.current = null; }
     if (volChartRef.current)  { volChartRef.current.remove();  volChartRef.current  = null; }
     if (adxChartRef.current)  { adxChartRef.current.remove();  adxChartRef.current  = null; }
     seriesRefs.current = {};
-
-    const toUnix = (c) => Math.floor(c.time / 1000);
 
     // ── 메인 차트 생성 ──
     const mainChart = createChart(mainRef.current, baseChartOptions(400, interval));
@@ -224,6 +365,9 @@ export default function ChartTab() {
       bollUpperSeries.setData(toLineData(upper));
       bollMidSeries.setData(toLineData(mid));
       bollLowerSeries.setData(toLineData(lower));
+      seriesRefs.current.bollUpper = bollUpperSeries;
+      seriesRefs.current.bollMid   = bollMidSeries;
+      seriesRefs.current.bollLower = bollLowerSeries;
     }
 
     // ── HMA ──
@@ -232,6 +376,7 @@ export default function ChartTab() {
       const hmaData = hmaArr.map((v, i) => v == null ? null : { time: toUnix(candles[i]), value: v }).filter(Boolean);
       const hmaSeries = mainChart.addSeries(LineSeries, { color: C.hma, lineWidth: 2, title: `HMA(${hmaPeriod})` });
       hmaSeries.setData(hmaData);
+      seriesRefs.current.hma = hmaSeries;
     }
 
     // ── VWAP ──
@@ -240,6 +385,7 @@ export default function ChartTab() {
       const vwapData = vwapArr.map((v, i) => v == null ? null : { time: toUnix(candles[i]), value: v }).filter(Boolean);
       const vwapSeries = mainChart.addSeries(LineSeries, { color: C.vwap, lineWidth: 1, lineStyle: 3, title: "VWAP" });
       vwapSeries.setData(vwapData);
+      seriesRefs.current.vwap = vwapSeries;
     }
 
     // ── 신호 마커 ──
@@ -317,6 +463,7 @@ export default function ChartTab() {
         color: c.close >= c.open ? C.vol_up : C.vol_down,
       }));
       volSeries.setData(volData);
+      seriesRefs.current.vol = volSeries;
 
       // 메인 차트와 시간축 동기화
       mainChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
@@ -349,10 +496,14 @@ export default function ChartTab() {
       adxSeries.setData(toLineData(adx));
       plusDISeries.setData(toLineData(plusDI));
       minusDISeries.setData(toLineData(minusDI));
+      seriesRefs.current.adx     = adxSeries;
+      seriesRefs.current.plusDI  = plusDISeries;
+      seriesRefs.current.minusDI = minusDISeries;
 
       const threshData = candles.map((c) => ({ time: toUnix(c), value: adxThresh }));
       const threshSeries = adxChart.addSeries(LineSeries, { color: "#3a4048", lineWidth: 1, lineStyle: 2, title: `임계(${adxThresh})` });
       threshSeries.setData(threshData);
+      seriesRefs.current.thresh = threshSeries;
 
       // 메인 차트와 시간축 동기화
       mainChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
